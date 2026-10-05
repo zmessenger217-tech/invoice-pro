@@ -1,0 +1,187 @@
+export type SoftwareCategory =
+  | 'School Management'
+  | 'Store Management'
+  | 'Hospital Management'
+  | 'Restaurant Management'
+  | 'Other';
+
+export type InvoiceTheme =
+  | 'royal-blue'
+  | 'midnight-slate'
+  | 'emerald-executive';
+
+export interface CategoryTerminology {
+  category: SoftwareCategory;
+  singular: string;
+  plural: string;
+  addressPlaceholder: string;
+  sampleName: string;
+  tagline: string;
+}
+
+export interface CompanyProfile {
+  name: string;
+  tagline: string;
+  phone: string;
+  email: string;
+  website: string;
+  logoDataUrl?: string;
+  qrCodeDataUrl?: string;
+  showQrCode?: boolean;
+  qrLabel?: string;
+  defaultIssueDate?: string;
+  defaultDueDate?: string;
+  invoiceHeaderTitle?: string;
+  invoiceHeaderNote?: string;
+  invoiceFooterThankYou?: string;
+  invoiceFooterTerms?: string;
+  invoiceTheme?: InvoiceTheme;
+  defaultSoftwareLabel?: string;
+  defaultChatbotLabel?: string;
+  category: SoftwareCategory;
+  customSingular?: string;
+  customPlural?: string;
+  currency: string;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  date: string;
+  amount: number;
+  method: 'Bank Transfer' | 'Cash' | 'Online / QR' | 'Cheque';
+  note?: string;
+  month: string;
+}
+
+export type PaymentStatus = 'Paid' | 'Partially Paid' | 'Unpaid';
+
+export interface MonthlyLedgerRecord {
+  month: string; // e.g., 'May 2026', 'September 2026', 'October 2026'
+  softwareCharges: number;
+  whatsappRate: number;
+  whatsappMessages: number;
+  whatsappCharges: number;
+  chatbotCharges: number;
+  previousDues: number;
+  previousDuesLabel: string; // e.g., 'Previous Dues (April 2026)' or 'Previous Dues — September 2026'
+  currentMonthTotal: number;
+  totalAmount: number;
+  amountPaid: number;
+  remainingDues: number;
+  status: PaymentStatus;
+  invoiceNumber: string;
+  invoiceDate: string;
+  dueDate?: string;
+  payments: PaymentTransaction[];
+}
+
+export interface ClientEntity {
+  id: string;
+  name: string;
+  address: string;
+  phone: string;
+  enabled: boolean;
+  createdAt: string;
+  // Default recurring monthly fee structure (editable anytime)
+  softwareEnabled: boolean;
+  softwareCharges: number;
+  whatsappEnabled: boolean;
+  whatsappRate: number;
+  whatsappMessages: number;
+  whatsappCharges: number;
+  chatbotEnabled: boolean;
+  chatbotCharges: number;
+  // Monthly billing & payment ledger keyed by month string e.g. 'May 2026'
+  monthlyRecords: Record<string, MonthlyLedgerRecord>;
+}
+
+export type ExpenseCategory =
+  | 'Office Expenses'
+  | 'Salaries'
+  | 'Marketing'
+  | 'Internet'
+  | 'Partner Payout'
+  | 'Other Expenses';
+
+export interface ExpenseItem {
+  id: string;
+  description: string;
+  amount: number;
+  category: ExpenseCategory;
+  date: string; // DD-MM-YYYY or YYYY-MM-DD
+  month: string; // e.g., 'May 2026'
+  partnerId?: string;
+  partnerName?: string;
+}
+
+export interface PartnerItem {
+  id: string;
+  name: string;
+  phone: string;
+  monthlyPayment: number;
+  paidMonths: Record<
+    string,
+    {
+      paid: boolean;
+      paidDate?: string;
+      expenseId?: string;
+    }
+  >;
+}
+
+export interface InvoiceEditableDocument {
+  id: string;
+  clientId: string;
+  headerTitle: string;
+  headerNote: string;
+  invoiceNumber: string;
+  invoiceDate: string; // Issue Date
+  dueDate: string; // Due Date
+  billingMonth: string;
+  companyName: string;
+  companyTagline: string;
+  companyPhone: string;
+  companyEmail: string;
+  companyWebsite: string;
+  clientName: string;
+  clientAddress: string;
+  clientPhone: string;
+  softwareLabel: string;
+  softwareCharges: number;
+  whatsappLabel: string;
+  whatsappRate: number;
+  whatsappMessages: number;
+  whatsappCharges: number;
+  chatbotLabel: string;
+  chatbotCharges: number;
+  previousDuesLabel: string;
+  previousDues: number;
+  amountPaid: number;
+  footerThankYou: string;
+  footerTerms: string;
+  qrLabel: string;
+  showQrCode: boolean;
+  logoDataUrl?: string;
+  qrCodeDataUrl?: string;
+  theme: InvoiceTheme;
+  status: PaymentStatus;
+}
+
+export type ActiveNavTab =
+  | 'dashboard'
+  | 'add-client'
+  | 'check-balance'
+  | 'invoices'
+  | 'invoice-editor'
+  | 'expenses'
+  | 'partners'
+  | 'finance-report'
+  | 'enable-disable'
+  | 'settings';
+
+export type AuthScreenMode =
+  | 'app'
+  | 'login'
+  | 'signup'
+  | 'forgot-password'
+  | 'company-setup';

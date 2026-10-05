@@ -1,0 +1,341 @@
+{
+  "entities": {
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Company profile and workspace configuration owned by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the authenticated workspace owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Company name displayed on dashboard and invoices.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "tagline": {
+          "type": "string",
+          "description": "Company subtitle or tagline shown on invoices.",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "description": "Company contact phone number.",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "email": {
+          "type": "string",
+          "description": "Company support email address.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "website": {
+          "type": "string",
+          "description": "Company website URL.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "category": {
+          "type": "string",
+          "description": "Software category determining dynamic terminology.",
+          "enum": [
+            "School Management",
+            "Store Management",
+            "Hospital Management",
+            "Restaurant Management",
+            "Other"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency prefix such as Rs. or $.",
+          "minLength": 1,
+          "maxLength": 10
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the workspace was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the workspace was last updated."
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "tagline",
+        "phone",
+        "email",
+        "website",
+        "category",
+        "currency",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Client": {
+      "title": "Client",
+      "description": "Client institution (e.g., School, Store, Hospital) with recurring charges and monthly ledger.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the workspace owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the client or school.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "address": {
+          "type": "string",
+          "description": "Physical address of the client.",
+          "minLength": 0,
+          "maxLength": 250
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number of the client.",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the client is active in monthly billing."
+        },
+        "softwareEnabled": {
+          "type": "boolean",
+          "description": "Whether software charges apply."
+        },
+        "softwareCharges": {
+          "type": "number",
+          "description": "Monthly software subscription fee."
+        },
+        "whatsappEnabled": {
+          "type": "boolean",
+          "description": "Whether WhatsApp charges apply."
+        },
+        "whatsappRate": {
+          "type": "number",
+          "description": "Rate per WhatsApp message."
+        },
+        "whatsappMessages": {
+          "type": "number",
+          "description": "Number of monthly WhatsApp messages."
+        },
+        "whatsappCharges": {
+          "type": "number",
+          "description": "Calculated WhatsApp charges (rate * messages)."
+        },
+        "chatbotEnabled": {
+          "type": "boolean",
+          "description": "Whether chatbot charges apply."
+        },
+        "chatbotCharges": {
+          "type": "number",
+          "description": "Monthly chatbot service fee."
+        },
+        "monthlyRecords": {
+          "type": "object",
+          "description": "Map of monthly billing and payment ledger records keyed by month."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "address",
+        "phone",
+        "enabled",
+        "softwareEnabled",
+        "softwareCharges",
+        "whatsappEnabled",
+        "whatsappRate",
+        "whatsappMessages",
+        "whatsappCharges",
+        "chatbotEnabled",
+        "chatbotCharges",
+        "monthlyRecords",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Company expense item tracked for monthly and yearly finance.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the workspace owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "description": {
+          "type": "string",
+          "description": "Expense description.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "amount": {
+          "type": "number",
+          "description": "Expense amount."
+        },
+        "category": {
+          "type": "string",
+          "description": "Expense category.",
+          "enum": [
+            "Office Expenses",
+            "Salaries",
+            "Marketing",
+            "Internet",
+            "Partner Payout",
+            "Other Expenses"
+          ]
+        },
+        "date": {
+          "type": "string",
+          "description": "Formatted date of expense.",
+          "minLength": 1,
+          "maxLength": 30
+        },
+        "month": {
+          "type": "string",
+          "description": "Billing month label e.g. May 2026.",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "partnerName": {
+          "type": "string",
+          "description": "Optional associated partner name.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated."
+        }
+      },
+      "required": [
+        "ownerId",
+        "description",
+        "amount",
+        "category",
+        "date",
+        "month",
+        "partnerName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Partner": {
+      "title": "Partner",
+      "description": "Company partner receiving monthly payout.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the workspace owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Partner full name.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "description": "Partner contact number.",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "monthlyPayment": {
+          "type": "number",
+          "description": "Monthly payout amount."
+        },
+        "paidMonths": {
+          "type": "object",
+          "description": "Map of payment statuses keyed by month."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated."
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "phone",
+        "monthlyPayment",
+        "paidMonths",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/workspaces/{userId}": {
+      "schema": {
+        "$ref": "#/entities/Workspace"
+      },
+      "description": "Workspace configuration document keyed by the authenticated user's UID."
+    },
+    "/workspaces/{userId}/clients/{clientId}": {
+      "schema": {
+        "$ref": "#/entities/Client"
+      },
+      "description": "Clients (Schools, Stores, Hospitals, etc.) belonging to the user's workspace."
+    },
+    "/workspaces/{userId}/expenses/{expenseId}": {
+      "schema": {
+        "$ref": "#/entities/Expense"
+      },
+      "description": "Expenses logged within the user's workspace."
+    },
+    "/workspaces/{userId}/partners/{partnerId}": {
+      "schema": {
+        "$ref": "#/entities/Partner"
+      },
+      "description": "Partners configured within the user's workspace."
+    }
+  }
+}

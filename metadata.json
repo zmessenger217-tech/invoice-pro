@@ -1,0 +1,6 @@
+{
+  "name": "InvoicePro — Invoice Generator & Finance Manager",
+  "description": "Modern SaaS invoice generator, client billing, check & balance ledger, and finance manager for software companies.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,272 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net — Default-Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isWorkspaceOwner(userId) {
+      return exists(/databases/$(database)/documents/workspaces/$(userId)) &&
+        get(/databases/$(database)/documents/workspaces/$(userId)).data.ownerId == request.auth.uid;
+    }
+
+    // 3. Entity Validation Blueprints (Synced verbatim with firebase-blueprint.json)
+    function isValidWorkspace(data) {
+      return data.keys().hasAll([
+          'ownerId', 'name', 'tagline', 'phone', 'email', 'website', 'category', 'currency', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'name', 'tagline', 'phone', 'email', 'website', 'category', 'currency', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.tagline is string && data.tagline.size() >= 0 && data.tagline.size() <= 200 &&
+        data.phone is string && data.phone.size() >= 0 && data.phone.size() <= 40 &&
+        data.email is string && data.email.size() >= 0 && data.email.size() <= 120 &&
+        data.website is string && data.website.size() >= 0 && data.website.size() <= 120 &&
+        data.category is string && data.category in [
+          'School Management',
+          'Store Management',
+          'Hospital Management',
+          'Restaurant Management',
+          'Other'
+        ] &&
+        data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidClient(data) {
+      return data.keys().hasAll([
+          'ownerId', 'name', 'address', 'phone', 'enabled',
+          'softwareEnabled', 'softwareCharges',
+          'whatsappEnabled', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
+          'chatbotEnabled', 'chatbotCharges',
+          'monthlyRecords', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'name', 'address', 'phone', 'enabled',
+          'softwareEnabled', 'softwareCharges',
+          'whatsappEnabled', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
+          'chatbotEnabled', 'chatbotCharges',
+          'monthlyRecords', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.address is string && data.address.size() >= 0 && data.address.size() <= 250 &&
+        data.phone is string && data.phone.size() >= 0 && data.phone.size() <= 40 &&
+        data.enabled is bool &&
+        data.softwareEnabled is bool &&
+        data.softwareCharges is number && data.softwareCharges >= 0 &&
+        data.whatsappEnabled is bool &&
+        data.whatsappRate is number && data.whatsappRate >= 0 &&
+        data.whatsappMessages is number && data.whatsappMessages >= 0 &&
+        data.whatsappCharges is number && data.whatsappCharges >= 0 &&
+        data.chatbotEnabled is bool &&
+        data.chatbotCharges is number && data.chatbotCharges >= 0 &&
+        data.monthlyRecords is map &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll([
+          'ownerId', 'description', 'amount', 'category', 'date', 'month', 'partnerName', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'description', 'amount', 'category', 'date', 'month', 'partnerName', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 160 &&
+        data.amount is number && data.amount >= 0 &&
+        data.category is string && data.category in [
+          'Office Expenses',
+          'Salaries',
+          'Marketing',
+          'Internet',
+          'Partner Payout',
+          'Other Expenses'
+        ] &&
+        data.date is string && data.date.size() >= 1 && data.date.size() <= 30 &&
+        data.month is string && data.month.size() >= 1 && data.month.size() <= 40 &&
+        data.partnerName is string && data.partnerName.size() >= 0 && data.partnerName.size() <= 120 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPartner(data) {
+      return data.keys().hasAll([
+          'ownerId', 'name', 'phone', 'monthlyPayment', 'paidMonths', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'name', 'phone', 'monthlyPayment', 'paidMonths', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.phone is string && data.phone.size() >= 0 && data.phone.size() <= 40 &&
+        data.monthlyPayment is number && data.monthlyPayment >= 0 &&
+        data.paidMonths is map &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Match Blocks
+    match /workspaces/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if isSignedIn() && request.auth.uid == userId && existing().ownerId == request.auth.uid;
+
+      allow create: if isVerified() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidWorkspace(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerified() &&
+        isValidWorkspace(incoming()) &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'tagline', 'phone', 'email', 'website', 'category', 'currency', 'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerified() && isValidId(userId) && request.auth.uid == userId && existing().ownerId == request.auth.uid;
+
+      // Subcollection: Clients
+      match /clients/{clientId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(clientId) && request.auth.uid == userId && isWorkspaceOwner(userId);
+        allow list: if isSignedIn() && request.auth.uid == userId && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(clientId) &&
+          request.auth.uid == userId &&
+          isValidClient(incoming()) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isWorkspaceOwner(userId);
+
+        allow update: if isVerified() &&
+          isValidClient(incoming()) &&
+          isValidId(userId) &&
+          isValidId(clientId) &&
+          request.auth.uid == userId &&
+          existing().ownerId == request.auth.uid &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'address', 'phone', 'enabled',
+              'softwareEnabled', 'softwareCharges',
+              'whatsappEnabled', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
+              'chatbotEnabled', 'chatbotCharges',
+              'monthlyRecords', 'updatedAt'
+            ])
+          ) &&
+          isWorkspaceOwner(userId);
+
+        allow delete: if isVerified() && isValidId(userId) && isValidId(clientId) && request.auth.uid == userId && existing().ownerId == request.auth.uid && isWorkspaceOwner(userId);
+      }
+
+      // Subcollection: Expenses
+      match /expenses/{expenseId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(expenseId) && request.auth.uid == userId && isWorkspaceOwner(userId);
+        allow list: if isSignedIn() && request.auth.uid == userId && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(expenseId) &&
+          request.auth.uid == userId &&
+          isValidExpense(incoming()) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isWorkspaceOwner(userId);
+
+        allow update: if isVerified() &&
+          isValidExpense(incoming()) &&
+          isValidId(userId) &&
+          isValidId(expenseId) &&
+          request.auth.uid == userId &&
+          existing().ownerId == request.auth.uid &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'description', 'amount', 'category', 'date', 'month', 'partnerName', 'updatedAt'
+            ])
+          ) &&
+          isWorkspaceOwner(userId);
+
+        allow delete: if isVerified() && isValidId(userId) && isValidId(expenseId) && request.auth.uid == userId && existing().ownerId == request.auth.uid && isWorkspaceOwner(userId);
+      }
+
+      // Subcollection: Partners
+      match /partners/{partnerId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(partnerId) && request.auth.uid == userId && isWorkspaceOwner(userId);
+        allow list: if isSignedIn() && request.auth.uid == userId && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(partnerId) &&
+          request.auth.uid == userId &&
+          isValidPartner(incoming()) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isWorkspaceOwner(userId);
+
+        allow update: if isVerified() &&
+          isValidPartner(incoming()) &&
+          isValidId(userId) &&
+          isValidId(partnerId) &&
+          request.auth.uid == userId &&
+          existing().ownerId == request.auth.uid &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'phone', 'monthlyPayment', 'paidMonths', 'updatedAt'
+            ])
+          ) &&
+          isWorkspaceOwner(userId);
+
+        allow delete: if isVerified() && isValidId(userId) && isValidId(partnerId) && request.auth.uid == userId && existing().ownerId == request.auth.uid && isWorkspaceOwner(userId);
+      }
+    }
+  }
+}

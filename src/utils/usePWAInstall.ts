@@ -1,0 +1,110 @@
+import { useEffect, useState } from 'react';
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
+export const DEFAULT_BRAND_LOGO_PATH =
+  '/src/assets/images/invoicepro_app_logo_1791180224663.jpg';
+
+export function usePWAInstall(customLogoDataUrl?: string) {
+  const [deferredPrompt, setDeferredPrompt] =
+    useState<BeforeInstallPromptEvent | null>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone ===
+        true;
+    setIsInstalled(isStandalone);
+
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIOSDevice = /iphone|ipad|ipod/.test(userAgent);
+    setIsIOS(isIOSDevice);
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener(
+        'beforeinstallprompt',
+        handleBeforeInstallPrompt
+      );
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  // Dynamically sync favicon and apple-touch-icon with the active brand logo
+  useEffect(() => {
+    const activeIcon = customLogoDataUrl || '/pwa-192x192.png';
+    const faviconEl = document.getElementById(
+      'dynamic-favicon'
+    ) as HTMLLinkElement | null;
+    const appleIconEl = document.getElementById(
+      'dynamic-apple-touch-icon'
+    ) as HTMLLinkElement | null;
+
+    if (faviconEl) {
+      faviconEl.href = activeIcon;
+      faviconEl.type = activeIcon.startsWith('data:image/jpeg')
+        ? 'image/jpeg'
+        : 'image/png';
+    }
+    if (appleIconEl) {
+      appleIconEl.href = activeIcon;
+    }
+  }, [customLogoDataUrl]);
+
+  const install = async () => {
+    if (!deferredPrompt) return false;
+    await deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+      return true;
+    }
+    return false;
+  };
+
+  return {
+    isInstallable: !!deferredPrompt,
+    isInstalled,
+    isIOS,
+    install,
+  };
+}
+
+export function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  return isOnline;
+}
