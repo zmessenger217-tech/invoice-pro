@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { formatCurrency, MONTHLY_CHART_BASELINE } from '../data/initialData';
+import {
+  formatCurrency,
+  getMonthlyChartBaseline,
+  getYearFromMonthString,
+} from '../data/initialData';
 
 interface RevenueExpenseChartProps {
   title?: string;
@@ -20,7 +24,10 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
 }) => {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  const data = MONTHLY_CHART_BASELINE.map((item) => {
+  const activeYear = getYearFromMonthString(activeMonth);
+  const baseline = getMonthlyChartBaseline(activeMonth);
+
+  const data = baseline.map((item) => {
     if (item.fullMonth === activeMonth) {
       return {
         ...item,
@@ -46,7 +53,7 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
         <div>
           <h3 className="text-base font-bold text-slate-900">{title}</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Monthly comparison across 2026 (in thousands {currency})
+            Monthly comparison across {activeYear} (in thousands {currency})
           </p>
         </div>
 

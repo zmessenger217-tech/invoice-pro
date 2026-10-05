@@ -70,6 +70,7 @@ interface ClientBillingViewsProps {
   onQuickDownloadInvoice: (clientId: string, month: string) => void;
   onQuickPrintInvoice: (clientId: string, month: string) => void;
   onQuickWhatsAppInvoice: (clientId: string, month: string) => void;
+  onDeleteInvoice?: (clientId: string, month: string) => void;
 }
 
 export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
@@ -90,6 +91,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   onQuickDownloadInvoice,
   onQuickPrintInvoice,
   onQuickWhatsAppInvoice,
+  onDeleteInvoice,
 }) => {
   const currency = company.currency || 'Rs.';
   const activeClients = clients.filter((c) => c.enabled);
@@ -127,6 +129,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   const [modalWhatsappMessages, setModalWhatsappMessages] = useState<number>(0);
   const [modalChatbotCharges, setModalChatbotCharges] = useState<number>(0);
   const [paymentInputAmount, setPaymentInputAmount] = useState<string>('');
+  const [selectedBank, setSelectedBank] = useState<string>('');
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentTransaction['method']>('Bank Transfer');
   const [paymentNote, setPaymentNote] = useState<string>('');
@@ -136,6 +139,12 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     useState<ClientEntity | null>(null);
   const [deleteModalClient, setDeleteModalClient] =
     useState<ClientEntity | null>(null);
+  const [deleteInvoiceTarget, setDeleteInvoiceTarget] = useState<{
+    clientId: string;
+    clientName: string;
+    month: string;
+    invoiceNumber: string;
+  } | null>(null);
 
   // Invoices Generator Selection (Screen 8) — pre-filled with the selected school's WhatsApp rate & messages
   const [invGeneratorClientId, setInvGeneratorClientId] = useState<string>(
@@ -200,6 +209,12 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     setModalWhatsappMessages(rec.whatsappMessages);
     setModalChatbotCharges(rec.chatbotCharges);
     setPaymentInputAmount(String(rec.remainingDues || 0));
+    const defaultBank =
+      company.qrCodes?.[0]?.bankName ||
+      company.qrCodes?.[0]?.label ||
+      '';
+    setSelectedBank(defaultBank);
+    setPaymentMethod(defaultBank ? 'Bank Transfer' : 'Bank Transfer');
     setPaymentNote('');
   };
 
@@ -1005,37 +1020,37 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse border border-slate-200 rounded-lg overflow-hidden">
                 <thead>
-                  <tr className="border-b border-slate-200 text-[11px] font-semibold text-slate-500">
-                    <th className="py-3 px-3">{term.singular} Name</th>
-                    <th className="py-3 px-3">WhatsApp (Rate × Msgs)</th>
-                    <th className="py-3 px-3 text-right">Prev. Dues</th>
-                    <th className="py-3 px-3 text-right">Total Amount</th>
-                    <th className="py-3 px-3 text-right">Paid</th>
-                    <th className="py-3 px-3 text-right">Dues</th>
-                    <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3 text-right">Action</th>
+                  <tr className="bg-slate-50/90 text-[11px] font-semibold text-slate-600">
+                    <th className="py-3 px-3.5 border border-slate-200">{term.singular} Name</th>
+                    <th className="py-3 px-3 border border-slate-200">WhatsApp (Rate × Msgs)</th>
+                    <th className="py-3 px-3 text-right border border-slate-200">Prev. Dues</th>
+                    <th className="py-3 px-3 text-right border border-slate-200">Total Amount</th>
+                    <th className="py-3 px-3 text-right border border-slate-200">Paid</th>
+                    <th className="py-3 px-3 text-right border border-slate-200">Dues</th>
+                    <th className="py-3 px-3.5 border border-slate-200">Status</th>
+                    <th className="py-3 px-3 text-right border border-slate-200">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
+                <tbody className="text-xs">
                   {filteredLedgerRows.map(({ client, record }) => (
                     <tr
                       key={client.id}
                       className="hover:bg-slate-50/80 transition-colors"
                     >
-                      <td className="py-3.5 px-3 font-semibold text-slate-900">
+                      <td className="py-3.5 px-3.5 font-semibold text-slate-900 border border-slate-200">
                         <div>{client.name}</div>
                         <div className="text-[11px] font-normal text-slate-400">
                           {client.phone}
                         </div>
                       </td>
-                      <td className="py-3.5 px-3 font-mono text-slate-600">
+                      <td className="py-3.5 px-3 font-mono text-slate-600 border border-slate-200">
                         {record.whatsappRate} ×{' '}
                         {record.whatsappMessages.toLocaleString()} ={' '}
                         {formatCurrency(record.whatsappCharges, currency)}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono tabular-nums text-slate-500">
+                      <td className="py-3.5 px-3 text-right font-mono tabular-nums text-slate-500 border border-slate-200">
                         {record.previousDues > 0 ? (
                           <span className="text-rose-600 font-semibold">
                             {formatCurrency(record.previousDues, currency)}
@@ -1044,25 +1059,25 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           `${currency} 0`
                         )}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums">
+                      <td className="py-3.5 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums border border-slate-200">
                         {formatCurrency(
                           record.totalAmount * periodMultiplier,
                           currency
                         )}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-emerald-700 tabular-nums">
+                      <td className="py-3.5 px-3 text-right font-mono text-emerald-700 tabular-nums border border-slate-200">
                         {formatCurrency(
                           record.amountPaid * periodMultiplier,
                           currency
                         )}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-semibold text-rose-600 tabular-nums">
+                      <td className="py-3.5 px-3 text-right font-mono font-semibold text-rose-600 tabular-nums border border-slate-200">
                         {formatCurrency(
                           record.remainingDues * periodMultiplier,
                           currency
                         )}
                       </td>
-                      <td className="py-3.5 px-3">
+                      <td className="py-3.5 px-3.5 border border-slate-200">
                         <span
                           className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
                             record.status === 'Paid'
@@ -1084,7 +1099,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           <span>{record.status}</span>
                         </span>
                       </td>
-                      <td className="py-3.5 px-3 text-right">
+                      <td className="py-3.5 px-3 text-right border border-slate-200">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
@@ -1266,6 +1281,13 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
+                  const noteParts: string[] = [];
+                  if (selectedBank) {
+                    noteParts.push(`Bank: ${selectedBank}`);
+                  }
+                  if (paymentNote.trim()) {
+                    noteParts.push(paymentNote.trim());
+                  }
                   onRecordPaymentWithCharges(
                     paymentModalClient.id,
                     selectedMonth,
@@ -1275,7 +1297,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     modalChatbotCharges,
                     enteredPayNum,
                     paymentMethod,
-                    paymentNote
+                    noteParts.join(' — ')
                   );
                   setPaymentModalClient(null);
                 }}
@@ -1314,7 +1336,58 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                {/* Bank Selection from Settings */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      Bank / Payment Destination (from Settings)
+                    </label>
+                    <select
+                      value={selectedBank}
+                      onChange={(e) => {
+                        const b = e.target.value;
+                        setSelectedBank(b);
+                        if (b === 'Cash') {
+                          setPaymentMethod('Cash');
+                        } else if (b === 'Cheque') {
+                          setPaymentMethod('Cheque');
+                        } else if (
+                          b.toLowerCase().includes('jazzcash') ||
+                          b.toLowerCase().includes('easypaisa') ||
+                          b.toLowerCase().includes('raast')
+                        ) {
+                          setPaymentMethod('Online / QR');
+                        } else {
+                          setPaymentMethod('Bank Transfer');
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                    >
+                      {company.qrCodes && company.qrCodes.length > 0 ? (
+                        <>
+                          {company.qrCodes.map((q, idx) => (
+                            <option
+                              key={q.id || idx}
+                              value={q.bankName || q.label}
+                            >
+                              {q.bankName || q.label}
+                            </option>
+                          ))}
+                          <option value="Cash">Cash</option>
+                          <option value="Cheque">Cheque</option>
+                          <option value="Other Bank">Other Bank</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="Primary Bank">Primary Bank Account</option>
+                          <option value="Cash">Cash</option>
+                          <option value="Online / QR">Online / QR</option>
+                          <option value="Cheque">Cheque</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block text-[11px] font-medium text-slate-500 mb-1">
                       Payment Method
@@ -1334,18 +1407,19 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                       <option value="Cheque">Cheque</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                      Reference Note
-                    </label>
-                    <input
-                      type="text"
-                      value={paymentNote}
-                      onChange={(e) => setPaymentNote(e.target.value)}
-                      placeholder="Optional note"
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200"
-                    />
-                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                    Reference / Transaction Note (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={paymentNote}
+                    onChange={(e) => setPaymentNote(e.target.value)}
+                    placeholder="e.g. Trx ID #98234, Deposited by Admin"
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
@@ -1360,7 +1434,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     type="submit"
                     className="py-2.5 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors"
                   >
-                    Confirm
+                    Confirm Payment
                   </button>
                 </div>
               </form>
@@ -1488,13 +1562,24 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Invoices</h1>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Verify WhatsApp rate &amp; message count (pre-filled from{' '}
-          {term.singular.toLowerCase()} setup), generate invoices, download PDF with{' '}
-          {term.singular.toLowerCase()} name, or share via WhatsApp
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Invoices</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Verify WhatsApp rate &amp; message count (pre-filled from{' '}
+            {term.singular.toLowerCase()} setup), generate invoices, download PDF with{' '}
+            {term.singular.toLowerCase()} name, or share via WhatsApp
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('invoice-log')}
+          className="px-4 py-2 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+        >
+          <FileText className="w-4 h-4" />
+          <span>View Invoice Log ({company.receiptLog?.length || 0})</span>
+        </button>
       </div>
 
       {/* Top Generator Card — Asks for WhatsApp Rate & Number of Messages every time, pre-filled from School setup */}
@@ -1635,7 +1720,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       </div>
 
       {/* Invoices List Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
         {clients.length === 0 ? (
           <div className="py-12 text-center text-xs text-slate-400">
             No {term.plural.toLowerCase()} added yet. Add a{' '}
@@ -1643,16 +1728,18 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse border border-slate-200">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold text-slate-500">
-                  <th className="py-3.5 px-4">Invoice No.</th>
-                  <th className="py-3.5 px-4">{term.singular}</th>
-                  <th className="py-3.5 px-4">Month</th>
-                  <th className="py-3.5 px-4">WhatsApp (Rate × Msgs)</th>
-                  <th className="py-3.5 px-4 text-right">Amount</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-right">Action</th>
+                <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold text-slate-600">
+                  <th className="py-3.5 px-4 border border-slate-200">Invoice No.</th>
+                  <th className="py-3.5 px-4 border border-slate-200">{term.singular}</th>
+                  <th className="py-3.5 px-4 border border-slate-200">Month</th>
+                  <th className="py-3.5 px-4 text-right border border-slate-200 bg-blue-50/30 text-blue-900">Software Charges</th>
+                  <th className="py-3.5 px-4 border border-slate-200">WhatsApp (Rate × Msgs)</th>
+                  <th className="py-3.5 px-4 text-right border border-slate-200 bg-purple-50/30 text-purple-900">Chatbot Charges</th>
+                  <th className="py-3.5 px-4 text-right border border-slate-200 font-bold">Total Amount</th>
+                  <th className="py-3.5 px-4 border border-slate-200">Status</th>
+                  <th className="py-3.5 px-4 text-right border border-slate-200">Action &amp; Delete</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
@@ -1666,10 +1753,10 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                       key={client.id}
                       className="hover:bg-slate-50/80 transition-colors"
                     >
-                      <td className="py-3.5 px-4 font-mono font-semibold text-slate-700">
+                      <td className="py-3.5 px-4 font-mono font-semibold text-slate-700 border border-slate-200">
                         {invNo}
                       </td>
-                      <td className="py-3.5 px-4 font-semibold text-slate-900">
+                      <td className="py-3.5 px-4 font-semibold text-slate-900 border border-slate-200">
                         {client.name}
                         {!client.enabled && (
                           <span className="ml-2 text-[11px] font-normal text-slate-400">
@@ -1677,18 +1764,26 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-slate-600">
+                      <td className="py-3.5 px-4 text-slate-600 border border-slate-200 whitespace-nowrap">
                         {selectedMonth}
                       </td>
-                      <td className="py-3.5 px-4 font-mono text-slate-600">
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-700 tabular-nums border border-slate-200 bg-blue-50/10">
+                        {formatCurrency(rec.softwareCharges, currency)}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
                         {rec.whatsappRate} ×{' '}
                         {rec.whatsappMessages.toLocaleString()} ={' '}
-                        {formatCurrency(rec.whatsappCharges, currency)}
+                        <span className="font-semibold text-slate-800">
+                          {formatCurrency(rec.whatsappCharges, currency)}
+                        </span>
                       </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900 tabular-nums">
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-purple-700 tabular-nums border border-slate-200 bg-purple-50/10">
+                        {formatCurrency(rec.chatbotCharges, currency)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900 tabular-nums border border-slate-200">
                         {formatCurrency(rec.totalAmount, currency)}
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 border border-slate-200">
                         <span
                           className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
                             rec.status === 'Paid'
@@ -1710,8 +1805,8 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           <span>{rec.status}</span>
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                      <td className="py-3.5 px-4 text-right border border-slate-200">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() =>
@@ -1760,6 +1855,23 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           >
                             <MessageCircle className="w-4 h-4" />
                           </button>
+                          {onDeleteInvoice && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteInvoiceTarget({
+                                  clientId: client.id,
+                                  clientName: client.name,
+                                  month: selectedMonth,
+                                  invoiceNumber: invNo,
+                                })
+                              }
+                              title="Delete this Invoice"
+                              className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1770,6 +1882,57 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
           </div>
         )}
       </div>
+
+      {/* Delete Invoice Confirmation Modal */}
+      {deleteInvoiceTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-sm w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Delete Invoice #{deleteInvoiceTarget.invoiceNumber}?
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Are you sure you want to delete this invoice for{' '}
+                  <strong className="text-slate-800">
+                    {deleteInvoiceTarget.clientName}
+                  </strong>{' '}
+                  for <strong>{deleteInvoiceTarget.month}</strong>? This will reset all current month charges and remove it from the Invoice Log.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteInvoiceTarget(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteInvoice && deleteInvoiceTarget) {
+                    onDeleteInvoice(
+                      deleteInvoiceTarget.clientId,
+                      deleteInvoiceTarget.month
+                    );
+                    setDeleteInvoiceTarget(null);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Invoice</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

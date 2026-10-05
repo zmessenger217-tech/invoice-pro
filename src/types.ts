@@ -10,6 +10,39 @@ export type InvoiceTheme =
   | 'midnight-slate'
   | 'emerald-executive';
 
+export interface PaymentQrCodeItem {
+  id: string;
+  label: string; // Bank name or wallet label (e.g. Meezan Bank, HBL, JazzCash, EasyPaisa, Raast)
+  bankName?: string;
+  accountTitle?: string;
+  accountNumber?: string;
+  dataUrl: string;
+}
+
+export interface GeneratedReceiptItem {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientPhone?: string;
+  invoiceNumber: string;
+  month: string;
+  invoiceDate: string;
+  dueDate: string;
+  softwareCharges: number;
+  whatsappRate: number;
+  whatsappMessages: number;
+  whatsappCharges: number;
+  chatbotCharges: number;
+  previousDues: number;
+  currentMonthTotal: number;
+  totalAmount: number;
+  amountPaid: number;
+  remainingDues: number;
+  status: PaymentStatus;
+  generatedAt: string;
+  doc: InvoiceEditableDocument;
+}
+
 export interface CategoryTerminology {
   category: SoftwareCategory;
   singular: string;
@@ -27,6 +60,7 @@ export interface CompanyProfile {
   website: string;
   logoDataUrl?: string;
   qrCodeDataUrl?: string;
+  qrCodes?: PaymentQrCodeItem[];
   showQrCode?: boolean;
   qrLabel?: string;
   defaultIssueDate?: string;
@@ -42,6 +76,8 @@ export interface CompanyProfile {
   customSingular?: string;
   customPlural?: string;
   currency: string;
+  receiptLog?: GeneratedReceiptItem[];
+  receiptLogMonth?: string;
 }
 
 export interface PaymentTransaction {
@@ -49,6 +85,7 @@ export interface PaymentTransaction {
   date: string;
   amount: number;
   method: 'Bank Transfer' | 'Cash' | 'Online / QR' | 'Cheque';
+  bankName?: string;
   note?: string;
   month: string;
 }
@@ -163,6 +200,7 @@ export interface InvoiceEditableDocument {
   showQrCode: boolean;
   logoDataUrl?: string;
   qrCodeDataUrl?: string;
+  qrCodes?: PaymentQrCodeItem[];
   theme: InvoiceTheme;
   status: PaymentStatus;
 }
@@ -173,6 +211,8 @@ export type ActiveNavTab =
   | 'check-balance'
   | 'invoices'
   | 'invoice-editor'
+  | 'invoice-log'
+  | 'receipt-log'
   | 'expenses'
   | 'partners'
   | 'finance-report'

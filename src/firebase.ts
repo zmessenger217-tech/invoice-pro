@@ -31,12 +31,15 @@ import {
   where,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+import { getCurrentMonthLabel } from './data/initialData';
 import {
   ClientEntity,
   CompanyProfile,
   ExpenseItem,
+  GeneratedReceiptItem,
   InvoiceTheme,
   PartnerItem,
+  PaymentQrCodeItem,
   SoftwareCategory,
 } from './types';
 import {
@@ -197,6 +200,54 @@ function buildSettingsMap(company: CompanyProfile): Record<string, unknown> {
       ? company.qrCodeDataUrl
       : '';
 
+  const sanitizedQrCodes = Array.isArray(company.qrCodes)
+    ? company.qrCodes.slice(0, 8).map((qr) => ({
+        id: clampString(qr.id, 60, `qr-${Date.now()}`),
+        label: clampString(qr.label, 80, 'Scan to Pay'),
+        dataUrl:
+          typeof qr.dataUrl === 'string' && qr.dataUrl.length <= 120000
+            ? qr.dataUrl
+            : '',
+      }))
+    : [];
+
+  // Invoice & Receipt log stores generated invoices with itemized software and chatbot charges
+  const activeMonth =
+    company.receiptLogMonth || getCurrentMonthLabel();
+  const currentMonthReceipts = Array.isArray(company.receiptLog)
+    ? company.receiptLog
+        .slice(-200) // keep last 200 receipts
+        .map((r) => ({
+          id: clampString(r.id, 60, `rcp-${Date.now()}`),
+          clientId: clampString(r.clientId, 60, ''),
+          clientName: clampString(r.clientName, 120, 'Client'),
+          clientPhone: clampString(r.clientPhone || '', 40, ''),
+          invoiceNumber: clampString(r.invoiceNumber, 40, 'INV-001'),
+          month: clampString(r.month, 40, activeMonth),
+          invoiceDate: clampString(r.invoiceDate, 40, ''),
+          dueDate: clampString(r.dueDate, 40, ''),
+          softwareCharges: Number(r.softwareCharges) || 0,
+          whatsappRate: Number(r.whatsappRate) || 0,
+          whatsappMessages: Number(r.whatsappMessages) || 0,
+          whatsappCharges: Number(r.whatsappCharges) || 0,
+          chatbotCharges: Number(r.chatbotCharges) || 0,
+          previousDues: Number(r.previousDues) || 0,
+          currentMonthTotal: Number(r.currentMonthTotal) || 0,
+          totalAmount: Number(r.totalAmount) || 0,
+          amountPaid: Number(r.amountPaid) || 0,
+          remainingDues: Number(r.remainingDues) || 0,
+          status: r.status || 'Unpaid',
+          generatedAt: clampString(r.generatedAt, 60, ''),
+          doc: {
+            ...r.doc,
+            // strip large base64 from embedded doc to keep doc lightweight
+            logoDataUrl: undefined,
+            qrCodeDataUrl: undefined,
+            qrCodes: undefined,
+          },
+        }))
+    : [];
+
   return {
     customSingular: clampString(company.customSingular, 60, ''),
     customPlural: clampString(company.customPlural, 60, ''),
@@ -233,6 +284,9 @@ function buildSettingsMap(company: CompanyProfile): Record<string, unknown> {
     ),
     logoDataUrl: customLogo,
     qrCodeDataUrl: customQr,
+    qrCodes: sanitizedQrCodes,
+    receiptLog: currentMonthReceipts,
+    receiptLogMonth: activeMonth,
   };
 }
 
@@ -274,6 +328,23 @@ function parseWorkspaceDocToCompany(
     settings.logoDataUrl.startsWith('data:image/')
       ? settings.logoDataUrl
       : undefined;
+
+  const savedQrCodes: PaymentQrCodeItem[] = Array.isArray(settings.qrCodes)
+    ? settings.qrCodes.map((q: any) => ({
+        id: String(q.id || `qr-${Date.now()}`),
+        label: String(q.label || 'Scan to Pay'),
+        dataUrl: String(q.dataUrl || ''),
+      }))
+    : [];
+
+  const activeMonth = getCurrentMonthLabel();
+  const rawReceiptLog = Array.isArray(settings.receiptLog)
+    ? settings.receiptLog
+    : [];
+  // Purge receipts from previous months so start of new month has clean receipt log
+  const filteredReceiptLog: GeneratedReceiptItem[] = rawReceiptLog.filter(
+    (r: any) => r && r.month === activeMonth
+  );
 
   return {
     ...defaultCompany,
@@ -328,6 +399,9 @@ function parseWorkspaceDocToCompany(
       settings.qrCodeDataUrl.startsWith('data:image/')
         ? settings.qrCodeDataUrl
         : defaultCompany.qrCodeDataUrl,
+    qrCodes: savedQrCodes,
+    receiptLog: filteredReceiptLog,
+    receiptLogMonth: activeMonth,
   };
 }
 

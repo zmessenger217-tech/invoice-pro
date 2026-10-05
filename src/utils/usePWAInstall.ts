@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import bundledBrandLogoUrl from '../assets/images/invoicepro_app_logo_1791180224663.jpg';
+import bundledBrandLogoUrl from '../assets/images/invoicepro_logo_official_1791219610311.jpg';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;

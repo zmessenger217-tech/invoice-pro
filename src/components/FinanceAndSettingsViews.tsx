@@ -3,7 +3,9 @@ import {
   Building2,
   Calendar,
   Check,
+  CreditCard,
   Plus,
+  QrCode,
   Search,
   Trash2,
   UploadCloud,
@@ -24,6 +26,7 @@ import {
   ExpenseItem,
   InvoiceTheme,
   PartnerItem,
+  PaymentQrCodeItem,
   SoftwareCategory,
 } from '../types';
 import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
@@ -147,6 +150,22 @@ export const FinanceAndSettingsViews: React.FC<
   const [compQrCode, setCompQrCode] = useState<string | undefined>(
     company.qrCodeDataUrl
   );
+  const [compQrCodes, setCompQrCodes] = useState<PaymentQrCodeItem[]>(() => {
+    if (company.qrCodes && company.qrCodes.length > 0) {
+      return company.qrCodes;
+    }
+    if (company.qrCodeDataUrl) {
+      return [
+        {
+          id: 'qr-1',
+          label: company.qrLabel || 'Primary Bank / Account',
+          bankName: company.qrLabel || 'Primary Bank',
+          dataUrl: company.qrCodeDataUrl,
+        },
+      ];
+    }
+    return [];
+  });
   const [compShowQr, setCompShowQr] = useState<boolean>(
     company.showQrCode !== false
   );
@@ -1021,9 +1040,10 @@ export const FinanceAndSettingsViews: React.FC<
             customPlural:
               compCategory === 'Other' ? `${compCustomSingular}s` : undefined,
             logoDataUrl: compLogo,
-            qrCodeDataUrl: compQrCode,
+            qrCodeDataUrl: compQrCodes[0]?.dataUrl || compQrCode,
+            qrCodes: compQrCodes,
             showQrCode: compShowQr,
-            qrLabel: compQrLabel.trim() || 'Scan to Pay',
+            qrLabel: compQrCodes[0]?.bankName || compQrCodes[0]?.label || compQrLabel.trim() || 'Scan to Pay',
             defaultIssueDate: compDefaultIssueDate.trim(),
             defaultDueDate: compDefaultDueDate.trim(),
             invoiceHeaderTitle: compHeaderTitle.trim() || 'INVOICE',
@@ -1140,15 +1160,42 @@ export const FinanceAndSettingsViews: React.FC<
           </div>
         </div>
 
-        {/* Card 2: Change Company Logo & Add QR Code */}
-        <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-          <h2 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2.5">
-            2. Company Logo &amp; Payment QR Code
-          </h2>
+        {/* Card 2: Change Company Logo & Add Bank Payment QR Codes */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                2. Company Logo &amp; Bank Payment QR Codes
+              </h2>
+              <p className="text-[11px] text-slate-500">
+                Add one or more bank accounts with QR codes (Meezan Bank, HBL, JazzCash, EasyPaisa, Raast, etc.)
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const newId = `qr-${Date.now()}`;
+                setCompQrCodes((prev) => [
+                  ...prev,
+                  {
+                    id: newId,
+                    label: `Bank Account ${prev.length + 1}`,
+                    bankName: `Bank ${prev.length + 1}`,
+                    dataUrl: '',
+                  },
+                ]);
+                setCompShowQr(true);
+              }}
+              className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Bank QR Code</span>
+            </button>
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Company Logo Upload */}
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+            {/* Company Logo Upload (4 cols) */}
+            <div className="md:col-span-4 space-y-2">
               <div className="flex items-center justify-between">
                 <label className="font-semibold text-slate-700">
                   Company Logo
@@ -1159,19 +1206,19 @@ export const FinanceAndSettingsViews: React.FC<
                     onClick={() => setCompLogo(undefined)}
                     className="text-rose-600 hover:underline text-[11px]"
                   >
-                    Remove Logo
+                    Remove
                   </button>
                 )}
               </div>
-              <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl p-5 flex flex-col items-center justify-center gap-2.5 cursor-pointer bg-slate-50/60 min-h-[120px]">
+              <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/60 min-h-[140px] text-center">
                 <img
                   src={resolveActiveLogoUrl(compLogo)}
                   alt="Company Logo"
                   referrerPolicy="no-referrer"
-                  className="h-14 w-auto object-contain rounded bg-white p-1 border border-slate-200"
+                  className="h-14 w-auto object-contain rounded bg-white p-1 border border-slate-200 shadow-xs"
                 />
-                <span className="text-xs font-medium text-slate-700 text-center">
-                  Click to change company &amp; app logo (PNG, JPG)
+                <span className="text-[11px] font-medium text-slate-700">
+                  Click to replace logo
                 </span>
                 <input
                   type="file"
@@ -1182,48 +1229,14 @@ export const FinanceAndSettingsViews: React.FC<
               </label>
             </div>
 
-            {/* Payment QR Code Upload */}
-            <div className="space-y-2">
+            {/* Multiple Bank Accounts & QR Codes List (8 cols) */}
+            <div className="md:col-span-8 space-y-3">
               <div className="flex items-center justify-between">
-                <label className="font-semibold text-slate-700">
-                  Payment QR Code (Displayed on Invoice)
+                <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <CreditCard className="w-4 h-4 text-blue-600" />
+                  <span>Configured Bank Accounts &amp; QR Codes ({compQrCodes.length})</span>
                 </label>
-                {compQrCode && (
-                  <button
-                    type="button"
-                    onClick={() => setCompQrCode(undefined)}
-                    className="text-rose-600 hover:underline text-[11px]"
-                  >
-                    Remove Custom QR
-                  </button>
-                )}
-              </div>
-              <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl p-5 flex flex-col items-center justify-center gap-2.5 cursor-pointer bg-slate-50/60 min-h-[120px]">
-                {compQrCode ? (
-                  <img
-                    src={compQrCode}
-                    alt="Payment QR Code"
-                    referrerPolicy="no-referrer"
-                    className="h-14 w-14 object-contain rounded border border-slate-200 bg-white p-1"
-                  />
-                ) : (
-                  <UploadCloud className="w-6 h-6 text-emerald-600" />
-                )}
-                <span className="text-xs font-medium text-slate-700 text-center">
-                  {compQrCode
-                    ? 'Click to replace QR Code image'
-                    : 'Click to upload QR Code (Bank / JazzCash / EasyPaisa / Raast)'}
-                </span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleQrCodeChange}
-                  className="hidden"
-                />
-              </label>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 items-center">
-                <label className="inline-flex items-center gap-2 cursor-pointer">
+                <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs">
                   <input
                     type="checkbox"
                     checked={compShowQr}
@@ -1231,18 +1244,164 @@ export const FinanceAndSettingsViews: React.FC<
                     className="rounded border-slate-300 text-blue-600"
                   />
                   <span className="font-medium text-slate-700">
-                    Show QR Code on Invoice
+                    Show QR Codes on Invoice
                   </span>
                 </label>
-
-                <input
-                  type="text"
-                  value={compQrLabel}
-                  onChange={(e) => setCompQrLabel(e.target.value)}
-                  placeholder="QR Label (e.g., Scan to Pay)"
-                  className="px-3 py-1.5 text-xs rounded-lg border border-slate-200"
-                />
               </div>
+
+              {compQrCodes.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-center space-y-2">
+                  <p className="text-xs text-slate-500">
+                    No bank QR codes added yet. Click &quot;Add Bank QR Code&quot; to add your first payment bank (e.g. Meezan Bank, HBL, JazzCash).
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompQrCodes([
+                        {
+                          id: `qr-${Date.now()}`,
+                          label: 'Meezan Bank',
+                          bankName: 'Meezan Bank',
+                          dataUrl: '',
+                        },
+                      ]);
+                      setCompShowQr(true);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg inline-flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Meezan Bank QR</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+                  {compQrCodes.map((qrItem, idx) => (
+                    <div
+                      key={qrItem.id || `qr-${idx}`}
+                      className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 font-bold text-[10px] flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <span className="font-bold text-xs text-slate-800">
+                            {qrItem.bankName || qrItem.label || `Bank ${idx + 1}`}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCompQrCodes((prev) =>
+                              prev.filter((_, i) => i !== idx)
+                            );
+                          }}
+                          className="text-rose-600 hover:text-rose-700 text-xs font-medium flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                        <div className="sm:col-span-7 space-y-2">
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              Bank / Wallet Name
+                            </label>
+                            <input
+                              type="text"
+                              value={qrItem.bankName ?? qrItem.label}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCompQrCodes((prev) =>
+                                  prev.map((item, i) =>
+                                    i === idx
+                                      ? {
+                                          ...item,
+                                          bankName: val,
+                                          label: val,
+                                        }
+                                      : item
+                                  )
+                                );
+                              }}
+                              placeholder="e.g. Meezan Bank, HBL, JazzCash, EasyPaisa, Raast"
+                              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              Account Title / Number (Optional)
+                            </label>
+                            <input
+                              type="text"
+                              value={qrItem.accountNumber ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCompQrCodes((prev) =>
+                                  prev.map((item, i) =>
+                                    i === idx
+                                      ? {
+                                          ...item,
+                                          accountNumber: val,
+                                        }
+                                      : item
+                                  )
+                                );
+                              }}
+                              placeholder="e.g. 0101-0104567890 / Title: Enterprise Ltd"
+                              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        {/* QR Image preview & upload */}
+                        <div className="sm:col-span-5">
+                          <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-lg p-2.5 flex flex-col items-center justify-center gap-1.5 cursor-pointer bg-white min-h-[90px] text-center">
+                            {qrItem.dataUrl ? (
+                              <img
+                                src={qrItem.dataUrl}
+                                alt={qrItem.bankName || 'QR Code'}
+                                className="h-12 w-12 object-contain rounded border border-slate-200 bg-white p-0.5"
+                              />
+                            ) : (
+                              <UploadCloud className="w-5 h-5 text-blue-600" />
+                            )}
+                            <span className="text-[10px] font-medium text-slate-700">
+                              {qrItem.dataUrl ? 'Change QR Image' : 'Upload QR Image'}
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  if (typeof reader.result === 'string') {
+                                    const resultData = reader.result;
+                                    setCompQrCodes((prev) =>
+                                      prev.map((item, i) =>
+                                        i === idx
+                                          ? { ...item, dataUrl: resultData }
+                                          : item
+                                      )
+                                    );
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              }}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

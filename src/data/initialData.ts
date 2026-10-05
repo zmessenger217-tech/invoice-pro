@@ -10,7 +10,7 @@ import {
 
 export type { CategoryTerminology };
 
-const MONTH_NAMES = [
+export const MONTH_NAMES = [
   'January',
   'February',
   'March',
@@ -25,16 +25,67 @@ const MONTH_NAMES = [
   'December',
 ];
 
-const CURRENT_DATE = new Date();
-const CURRENT_YEAR = CURRENT_DATE.getFullYear();
+export function getYearFromMonthString(monthStr: string): number {
+  const parts = monthStr.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    const y = parseInt(parts[parts.length - 1], 10);
+    if (!isNaN(y) && y >= 2000 && y <= 2100) return y;
+  }
+  return new Date().getFullYear();
+}
 
-export const AVAILABLE_MONTHS: string[] = MONTH_NAMES.map(
-  (m) => `${m} ${CURRENT_YEAR}`
-);
+export function generateAvailableMonths(startYear = 2024, endYear = 2035): string[] {
+  const list: string[] = [];
+  for (let y = startYear; y <= endYear; y++) {
+    for (const m of MONTH_NAMES) {
+      list.push(`${m} ${y}`);
+    }
+  }
+  return list;
+}
+
+export const AVAILABLE_MONTHS: string[] = generateAvailableMonths(2024, 2035);
 
 export function getCurrentMonthLabel(): string {
-  const monthName = MONTH_NAMES[CURRENT_DATE.getMonth()] || 'October';
-  return `${monthName} ${CURRENT_YEAR}`;
+  const now = new Date();
+  const monthName = MONTH_NAMES[now.getMonth()] || 'October';
+  return `${monthName} ${now.getFullYear()}`;
+}
+
+export function getYearMonths(year: number): string[] {
+  return MONTH_NAMES.map((m) => `${m} ${year}`);
+}
+
+export function getPreviousMonthName(month: string): string {
+  const parts = month.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    const mName = parts[0];
+    const year = parseInt(parts[parts.length - 1], 10) || new Date().getFullYear();
+    const idx = MONTH_NAMES.indexOf(mName);
+    if (idx > 0) {
+      return `${MONTH_NAMES[idx - 1]} ${year}`;
+    } else if (idx === 0) {
+      return `December ${year - 1}`;
+    }
+  }
+  const fallbackYear = new Date().getFullYear();
+  return `December ${fallbackYear - 1}`;
+}
+
+export function getNextMonthName(month: string): string {
+  const parts = month.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    const mName = parts[0];
+    const year = parseInt(parts[parts.length - 1], 10) || new Date().getFullYear();
+    const idx = MONTH_NAMES.indexOf(mName);
+    if (idx >= 0 && idx < 11) {
+      return `${MONTH_NAMES[idx + 1]} ${year}`;
+    } else if (idx === 11) {
+      return `January ${year + 1}`;
+    }
+  }
+  const fallbackYear = new Date().getFullYear();
+  return `January ${fallbackYear + 1}`;
 }
 
 /**
@@ -71,7 +122,7 @@ export function getIssueDateForMonth(
   month: string,
   customIssueDate?: string
 ): string {
-  const defaultDay = CURRENT_DATE.getDate() || 1;
+  const defaultDay = new Date().getDate() || 1;
   const dayStr = extractDayFromDateInput(customIssueDate, defaultDay);
   return `${dayStr} ${month}`;
 }
@@ -80,7 +131,7 @@ export function getDueDateForMonth(
   month: string,
   customDueDate?: string
 ): string {
-  const defaultIssueDay = CURRENT_DATE.getDate() || 1;
+  const defaultIssueDay = new Date().getDate() || 1;
   const defaultDueDay = Math.min(28, defaultIssueDay + 10);
   const dayStr = extractDayFromDateInput(customDueDate, defaultDueDay);
   return `${dayStr} ${month}`;
@@ -146,14 +197,6 @@ export function getTerminology(company: CompanyProfile): CategoryTerminology {
 export function formatCurrency(amount: number, currency = 'Rs.'): string {
   const formatted = Math.round(amount).toLocaleString('en-US');
   return `${currency} ${formatted}`;
-}
-
-export function getPreviousMonthName(month: string): string {
-  const idx = AVAILABLE_MONTHS.indexOf(month);
-  if (idx > 0) {
-    return AVAILABLE_MONTHS[idx - 1];
-  }
-  return `December ${CURRENT_YEAR - 1}`;
 }
 
 export function getOrComputeMonthlyRecord(
@@ -275,14 +318,25 @@ export const INITIAL_EXPENSES: ExpenseItem[] = [];
 
 export const INITIAL_PARTNERS: PartnerItem[] = [];
 
-export const MONTHLY_CHART_BASELINE: {
+export function getMonthlyChartBaseline(monthOrYear?: string | number): {
   shortMonth: string;
   fullMonth: string;
   revenue: number;
   expenses: number;
-}[] = MONTH_NAMES.map((m) => ({
-  shortMonth: m.slice(0, 3),
-  fullMonth: `${m} ${CURRENT_YEAR}`,
-  revenue: 0,
-  expenses: 0,
-}));
+}[] {
+  const year =
+    typeof monthOrYear === 'number'
+      ? monthOrYear
+      : typeof monthOrYear === 'string'
+      ? getYearFromMonthString(monthOrYear)
+      : new Date().getFullYear();
+
+  return MONTH_NAMES.map((m) => ({
+    shortMonth: m.slice(0, 3),
+    fullMonth: `${m} ${year}`,
+    revenue: 0,
+    expenses: 0,
+  }));
+}
+
+export const MONTHLY_CHART_BASELINE = getMonthlyChartBaseline();

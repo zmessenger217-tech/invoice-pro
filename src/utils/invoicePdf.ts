@@ -1,10 +1,42 @@
 import { jsPDF } from 'jspdf';
 import { formatCurrency } from '../data/initialData';
-import { InvoiceEditableDocument, InvoiceTheme } from '../types';
+import {
+  InvoiceEditableDocument,
+  InvoiceTheme,
+  PaymentQrCodeItem,
+} from '../types';
 import {
   DEFAULT_BRAND_LOGO_DATA_URL,
   resolveActiveLogoUrl,
 } from './usePWAInstall';
+
+export function getResolvedQrCodes(docData: {
+  qrCodes?: PaymentQrCodeItem[];
+  qrCodeDataUrl?: string;
+  qrLabel?: string;
+  showQrCode?: boolean;
+}): PaymentQrCodeItem[] {
+  if (docData.showQrCode === false) return [];
+  if (docData.qrCodes && docData.qrCodes.length > 0) {
+    return docData.qrCodes;
+  }
+  if (docData.qrCodeDataUrl) {
+    return [
+      {
+        id: 'qr-primary',
+        label: docData.qrLabel || 'Scan to Pay',
+        dataUrl: docData.qrCodeDataUrl,
+      },
+    ];
+  }
+  return [
+    {
+      id: 'qr-default',
+      label: docData.qrLabel || 'Scan to Pay',
+      dataUrl: '',
+    },
+  ];
+}
 
 export function getClientPdfFilename(docData: InvoiceEditableDocument): string {
   const safeClientName = (docData.clientName || 'Client')
@@ -442,37 +474,53 @@ export function buildInvoicePdfInstance(
     pageHeight - 9.5
   );
 
-  // QR Code Box on Bottom Right (if enabled)
+  // QR Code Boxes on Bottom Right (if enabled)
   if (docData.showQrCode !== false) {
-    const qrSize = 21;
-    const qrX = pageWidth - 18 - qrSize;
-    const qrY = pageHeight - 34;
-    pdf.setFillColor(255, 255, 255);
-    pdf.setDrawColor(203, 213, 225);
-    pdf.roundedRect(qrX - 2, qrY - 2, qrSize + 4, qrSize + 8, 1.5, 1.5, 'FD');
+    const qrList = getResolvedQrCodes(docData);
+    if (qrList.length > 0) {
+      const qrSize = qrList.length > 2 ? 16 : qrList.length === 2 ? 18 : 21;
+      const gap = 3.5;
+      const totalWidth = qrList.length * (qrSize + 4) + (qrList.length - 1) * gap;
+      let curQrX = pageWidth - 18 - totalWidth;
+      const qrY = pageHeight - 34;
 
-    if (
-      docData.qrCodeDataUrl &&
-      docData.qrCodeDataUrl.startsWith('data:image/')
-    ) {
-      try {
-        pdf.addImage(docData.qrCodeDataUrl, qrX, qrY, qrSize, qrSize);
-      } catch {
-        drawMatrixQr(pdf, qrX, qrY, qrSize);
+      for (const qr of qrList) {
+        pdf.setFillColor(255, 255, 255);
+        pdf.setDrawColor(203, 213, 225);
+        pdf.roundedRect(
+          curQrX,
+          qrY - 2,
+          qrSize + 4,
+          qrSize + 8,
+          1.5,
+          1.5,
+          'FD'
+        );
+
+        if (qr.dataUrl && qr.dataUrl.startsWith('data:image/')) {
+          try {
+            pdf.addImage(qr.dataUrl, curQrX + 2, qrY, qrSize, qrSize);
+          } catch {
+            drawMatrixQr(pdf, curQrX + 2, qrY, qrSize);
+          }
+        } else {
+          drawMatrixQr(pdf, curQrX + 2, qrY, qrSize);
+        }
+
+        pdf.setFontSize(qrList.length > 2 ? 5.5 : 6.5);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(51, 65, 85);
+        const truncatedLabel = (qr.label || 'Scan to Pay').slice(0, 14);
+        pdf.text(
+          truncatedLabel,
+          curQrX + (qrSize + 4) / 2,
+          qrY + qrSize + 4,
+          { align: 'center' }
+        );
+
+        curQrX += qrSize + 4 + gap;
       }
-    } else {
-      drawMatrixQr(pdf, qrX, qrY, qrSize);
     }
-
-    pdf.setFontSize(7);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(51, 65, 85);
-    pdf.text(
-      docData.qrLabel || 'Scan to Pay',
-      qrX + qrSize / 2,
-      qrY + qrSize + 4,
-      { align: 'center' }
-    );
   }
 
   return pdf;
@@ -554,23 +602,31 @@ export function printInvoiceDocument(
     .filter(Boolean)
     .join(' &nbsp;|&nbsp; ');
 
+  const resolvedQrs = getResolvedQrCodes(docData);
   const qrHtml =
-    docData.showQrCode !== false
-      ? `<div style="background:#fff;border:1px solid #cbd5e1;border-radius:10px;padding:8px;text-align:center;min-width:90px;">
-          ${
-            docData.qrCodeDataUrl
-              ? `<img src="${docData.qrCodeDataUrl}" alt="QR" style="width:68px;height:68px;object-fit:contain;display:block;margin:0 auto;" />`
-              : `<div style="width:68px;height:68px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:#f8fafc;padding:4px;border:1px solid #e2e8f0;">
-                  <div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div>
-                  <div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div>
-                  <div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div>
-                  <div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div>
-                  <div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div>
-                </div>`
-          }
-          <div style="font-size:10px;font-weight:700;color:#334155;margin-top:4px;">${
-            docData.qrLabel || 'Scan to Pay'
-          }</div>
+    docData.showQrCode !== false && resolvedQrs.length > 0
+      ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;">
+          ${resolvedQrs
+            .map(
+              (qr) => `
+            <div style="background:#fff;border:1px solid #cbd5e1;border-radius:10px;padding:6px;text-align:center;min-width:76px;">
+              ${
+                qr.dataUrl && qr.dataUrl.startsWith('data:image/')
+                  ? `<img src="${qr.dataUrl}" alt="QR" style="width:58px;height:58px;object-fit:contain;display:block;margin:0 auto;" />`
+                  : `<div style="width:58px;height:58px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:#f8fafc;padding:4px;border:1px solid #e2e8f0;">
+                      <div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div>
+                      <div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div>
+                      <div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div>
+                      <div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div>
+                      <div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div>
+                    </div>`
+              }
+              <div style="font-size:9px;font-weight:700;color:#334155;margin-top:3px;max-width:85px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${
+                qr.label || 'Scan to Pay'
+              }</div>
+            </div>`
+            )
+            .join('')}
         </div>`
       : '';
 

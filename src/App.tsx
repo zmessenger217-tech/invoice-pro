@@ -5,10 +5,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Edit3,
+  FileSpreadsheet,
   FileText,
   LayoutDashboard,
   LogOut,
   Menu,
+  ScrollText,
   Settings,
   ToggleLeft,
   UserPlus,
@@ -18,6 +20,7 @@ import {
 import { AuthAndOnboarding } from './components/AuthAndOnboarding';
 import { ClientBillingViews } from './components/ClientBillingViews';
 import { FinanceAndSettingsViews } from './components/FinanceAndSettingsViews';
+import { InvoiceLogView } from './components/InvoiceLogView';
 import { InvoicePreviewAndEditor } from './components/InvoicePreviewAndEditor';
 import { OfflineIndicator } from './components/PWAInstallModal';
 import {
@@ -55,6 +58,7 @@ import {
   ClientEntity,
   CompanyProfile,
   ExpenseItem,
+  GeneratedReceiptItem,
   InvoiceEditableDocument,
   PartnerItem,
   PaymentTransaction,
@@ -371,16 +375,13 @@ export default function App() {
     [activeClients, selectedMonth]
   );
 
+  // Monthly revenue is only updated when someone pays (actual collected cash flow), not pre-added scheduled data
   const monthlyRevenue = useMemo(
-    () =>
-      activeLedgerRecords.reduce((sum, r) => sum + r.currentMonthTotal, 0),
-    [activeLedgerRecords]
-  );
-
-  const totalCollected = useMemo(
     () => activeLedgerRecords.reduce((sum, r) => sum + r.amountPaid, 0),
     [activeLedgerRecords]
   );
+
+  const totalCollected = monthlyRevenue;
 
   const totalOutstandingDues = useMemo(
     () => activeLedgerRecords.reduce((sum, r) => sum + r.remainingDues, 0),
@@ -423,6 +424,7 @@ export default function App() {
       showQrCode: updated.showQrCode !== false,
       logoDataUrl: updated.logoDataUrl,
       qrCodeDataUrl: updated.qrCodeDataUrl,
+      qrCodes: updated.qrCodes || prev.qrCodes,
       theme: updated.invoiceTheme || prev.theme,
       softwareLabel: updated.defaultSoftwareLabel || prev.softwareLabel,
       chatbotLabel: updated.defaultChatbotLabel || prev.chatbotLabel,
@@ -447,6 +449,7 @@ export default function App() {
       website: docData.companyWebsite.trim(),
       logoDataUrl: docData.logoDataUrl,
       qrCodeDataUrl: docData.qrCodeDataUrl,
+      qrCodes: docData.qrCodes || company.qrCodes,
       showQrCode: docData.showQrCode,
       qrLabel: docData.qrLabel.trim() || 'Scan to Pay',
       defaultIssueDate: docData.invoiceDate.trim(),
@@ -461,6 +464,127 @@ export default function App() {
       defaultChatbotLabel: docData.chatbotLabel.trim() || 'Chatbot Charges',
     };
     await handleUpdateCompany(updatedCompany);
+  };
+
+  const handleSaveInvoiceChanges = async (docData: InvoiceEditableDocument) => {
+    const target =
+      clients.find((c) => c.id === docData.clientId) ||
+      clients.find((c) => c.id === editorClientId);
+    if (!target) return;
+
+    const month = docData.billingMonth || selectedMonth;
+    const currentRec = getOrComputeMonthlyRecord(target, month);
+
+    const softwareCharges = Number(docData.softwareCharges) || 0;
+    const whatsappRate = Number(docData.whatsappRate) || 0;
+    const whatsappMessages = Number(docData.whatsappMessages) || 0;
+    const whatsappCharges =
+      Number(docData.whatsappCharges) ||
+      Math.round(whatsappRate * whatsappMessages);
+    const chatbotCharges = Number(docData.chatbotCharges) || 0;
+    const previousDues = Number(docData.previousDues) || 0;
+    const currentMonthTotal =
+      softwareCharges + whatsappCharges + chatbotCharges;
+    const totalAmount = currentMonthTotal + previousDues;
+    const amountPaid = Number(docData.amountPaid) || 0;
+    const remainingDues = Math.max(0, totalAmount - amountPaid);
+    const status =
+      remainingDues === 0
+        ? 'Paid'
+        : amountPaid > 0
+        ? 'Partially Paid'
+        : 'Unpaid';
+
+    const updatedClient: ClientEntity = {
+      ...target,
+      name: docData.clientName || target.name,
+      phone: docData.clientPhone || target.phone,
+      address: docData.clientAddress || target.address,
+      softwareCharges,
+      whatsappRate,
+      whatsappMessages,
+      whatsappCharges,
+      chatbotCharges,
+      monthlyRecords: {
+        ...target.monthlyRecords,
+        [month]: {
+          ...currentRec,
+          softwareCharges,
+          whatsappRate,
+          whatsappMessages,
+          whatsappCharges,
+          chatbotCharges,
+          previousDues,
+          previousDuesLabel:
+            docData.previousDuesLabel || currentRec.previousDuesLabel,
+          currentMonthTotal,
+          totalAmount,
+          amountPaid,
+          remainingDues,
+          status,
+          invoiceNumber: docData.invoiceNumber || currentRec.invoiceNumber,
+          invoiceDate: docData.invoiceDate || currentRec.invoiceDate,
+          dueDate: docData.dueDate || currentRec.dueDate,
+        },
+      },
+    };
+
+    const savedReceiptItem: GeneratedReceiptItem = {
+      id: `inv-log-${Date.now()}-${target.id}`,
+      clientId: target.id,
+      clientName: updatedClient.name,
+      clientPhone: updatedClient.phone,
+      invoiceNumber:
+        docData.invoiceNumber ||
+        currentRec.invoiceNumber ||
+        `INV-${String(Date.now()).slice(-4)}`,
+      month,
+      invoiceDate: docData.invoiceDate,
+      dueDate: docData.dueDate,
+      softwareCharges,
+      whatsappRate,
+      whatsappMessages,
+      whatsappCharges,
+      chatbotCharges,
+      previousDues,
+      currentMonthTotal,
+      totalAmount,
+      amountPaid,
+      remainingDues,
+      status,
+      generatedAt: new Date().toLocaleString('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }),
+      doc: docData,
+    };
+
+    const existingLog = (company.receiptLog || []).filter(
+      (r) => !(r.clientId === target.id && r.month === month)
+    );
+    const updatedCompany: CompanyProfile = {
+      ...company,
+      receiptLog: [savedReceiptItem, ...existingLog],
+      receiptLogMonth: month,
+    };
+
+    setClients((prev) =>
+      prev.map((c) => (c.id === target.id ? updatedClient : c))
+    );
+    setCompany(updatedCompany);
+    setInvoiceDoc(docData);
+
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
+      try {
+        await Promise.all([
+          syncClientToFirestore(activeUser.uid, updatedClient, false),
+          syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany),
+        ]);
+      } catch (err) {
+        console.error(err);
+      }
+    }
   };
 
   const handleSaveClient = async (client: ClientEntity, isNew: boolean) => {
@@ -617,20 +741,227 @@ export default function App() {
       },
     };
 
+    const docData = buildEditableInvoiceFromClient(
+      company,
+      updatedClient,
+      month
+    );
+
+    const newReceiptItem: GeneratedReceiptItem = {
+      id: `inv-log-${Date.now()}-${clientId}`,
+      clientId,
+      clientName: target.name,
+      clientPhone: target.phone,
+      invoiceNumber:
+        currentRec.invoiceNumber ||
+        `INV-${String(Date.now()).slice(-4)}`,
+      month,
+      invoiceDate: docData.invoiceDate,
+      dueDate: docData.dueDate,
+      softwareCharges,
+      whatsappRate,
+      whatsappMessages,
+      whatsappCharges,
+      chatbotCharges,
+      previousDues: currentRec.previousDues,
+      currentMonthTotal,
+      totalAmount,
+      amountPaid: currentRec.amountPaid,
+      remainingDues,
+      status,
+      generatedAt: new Date().toLocaleString('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }),
+      doc: docData,
+    };
+
+    const existingLog = (company.receiptLog || []).filter(
+      (r) => !(r.clientId === clientId && r.month === month)
+    );
+    const updatedCompany: CompanyProfile = {
+      ...company,
+      receiptLog: [newReceiptItem, ...existingLog],
+      receiptLogMonth: month,
+    };
+
     setClients((prev) =>
       prev.map((c) => (c.id === clientId ? updatedClient : c))
     );
+    setCompany(updatedCompany);
     setEditorClientId(clientId);
     setSelectedMonth(month);
-    setInvoiceDoc(
-      buildEditableInvoiceFromClient(company, updatedClient, month)
-    );
+    setInvoiceDoc(docData);
     setActiveTab('invoice-editor');
 
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
-        await syncClientToFirestore(activeUser.uid, updatedClient, false);
+        await Promise.all([
+          syncClientToFirestore(activeUser.uid, updatedClient, false),
+          syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany),
+        ]);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleDeleteInvoice = async (clientId: string, month: string) => {
+    const target = clients.find((c) => c.id === clientId);
+    if (!target) return;
+
+    const currentRec = getOrComputeMonthlyRecord(target, month);
+    const updatedClient: ClientEntity = {
+      ...target,
+      monthlyRecords: {
+        ...target.monthlyRecords,
+        [month]: {
+          ...currentRec,
+          softwareCharges: 0,
+          whatsappMessages: 0,
+          whatsappCharges: 0,
+          chatbotCharges: 0,
+          currentMonthTotal: 0,
+          totalAmount: currentRec.previousDues,
+          amountPaid: 0,
+          remainingDues: currentRec.previousDues,
+          status: currentRec.previousDues === 0 ? 'Paid' : 'Unpaid',
+          payments: [],
+        },
+      },
+    };
+
+    const updatedReceipts = (company.receiptLog || []).filter(
+      (r) => !(r.clientId === clientId && r.month === month)
+    );
+    const updatedCompany: CompanyProfile = {
+      ...company,
+      receiptLog: updatedReceipts,
+    };
+
+    setClients((prev) =>
+      prev.map((c) => (c.id === clientId ? updatedClient : c))
+    );
+    setCompany(updatedCompany);
+
+    if (editorClientId === clientId && selectedMonth === month) {
+      setInvoiceDoc(
+        buildEditableInvoiceFromClient(company, updatedClient, month)
+      );
+    }
+
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
+      try {
+        await Promise.all([
+          syncClientToFirestore(activeUser.uid, updatedClient, false),
+          syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany),
+        ]);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleDeleteInvoiceFromLog = async (
+    logId: string,
+    resetClientMonthLedger?: boolean,
+    clientId?: string,
+    month?: string
+  ) => {
+    const updatedReceipts = (company.receiptLog || []).filter(
+      (r) => r.id !== logId
+    );
+    const updatedCompany: CompanyProfile = {
+      ...company,
+      receiptLog: updatedReceipts,
+    };
+    setCompany(updatedCompany);
+
+    let updatedClient: ClientEntity | null = null;
+    if (resetClientMonthLedger && clientId && month) {
+      const target = clients.find((c) => c.id === clientId);
+      if (target) {
+        const currentRec = getOrComputeMonthlyRecord(target, month);
+        updatedClient = {
+          ...target,
+          monthlyRecords: {
+            ...target.monthlyRecords,
+            [month]: {
+              ...currentRec,
+              softwareCharges: 0,
+              whatsappMessages: 0,
+              whatsappCharges: 0,
+              chatbotCharges: 0,
+              currentMonthTotal: 0,
+              totalAmount: currentRec.previousDues,
+              amountPaid: 0,
+              remainingDues: currentRec.previousDues,
+              status: currentRec.previousDues === 0 ? 'Paid' : 'Unpaid',
+              payments: [],
+            },
+          },
+        };
+        setClients((prev) =>
+          prev.map((c) => (c.id === clientId ? updatedClient! : c))
+        );
+
+        if (editorClientId === clientId && selectedMonth === month) {
+          setInvoiceDoc(
+            buildEditableInvoiceFromClient(company, updatedClient, month)
+          );
+        }
+      }
+    }
+
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
+      try {
+        await Promise.all([
+          syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany),
+          updatedClient
+            ? syncClientToFirestore(activeUser.uid, updatedClient, false)
+            : Promise.resolve(),
+        ]);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleOpenInvoiceInEditor = (
+    clientId: string,
+    month: string,
+    doc?: InvoiceEditableDocument
+  ) => {
+    setEditorClientId(clientId);
+    setSelectedMonth(month);
+    if (doc) {
+      setInvoiceDoc(doc);
+    } else {
+      const target = clients.find((c) => c.id === clientId);
+      if (target) {
+        setInvoiceDoc(buildEditableInvoiceFromClient(company, target, month));
+      }
+    }
+    setActiveTab('invoice-editor');
+  };
+
+  const handleClearInvoiceLog = async (month?: string) => {
+    const updatedReceipts = month
+      ? (company.receiptLog || []).filter((r) => r.month !== month)
+      : [];
+    const updatedCompany: CompanyProfile = {
+      ...company,
+      receiptLog: updatedReceipts,
+    };
+    setCompany(updatedCompany);
+
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
+      try {
+        await syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany);
       } catch (err) {
         console.error(err);
       }
@@ -937,6 +1268,7 @@ export default function App() {
     { id: 'add-client', label: `Add ${term.singular}`, icon: UserPlus },
     { id: 'check-balance', label: 'Check & Balance', icon: CheckSquare },
     { id: 'invoices', label: 'Invoices', icon: FileText },
+    { id: 'invoice-log', label: 'Invoice Log', icon: FileSpreadsheet },
     { id: 'invoice-editor', label: 'Invoice Editor', icon: Edit3 },
     { id: 'partners', label: 'Partners', icon: Users },
     { id: 'finance-report', label: 'Finance Report', icon: BarChart3 },
@@ -1123,6 +1455,28 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab('invoices')}
+              className={`hover:text-slate-900 transition-colors whitespace-nowrap ${
+                activeTab === 'invoices'
+                  ? 'text-blue-600 font-semibold'
+                  : ''
+              }`}
+            >
+              Invoices
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('invoice-log')}
+              className={`hover:text-slate-900 transition-colors whitespace-nowrap ${
+                activeTab === 'invoice-log'
+                  ? 'text-blue-600 font-semibold'
+                  : ''
+              }`}
+            >
+              Invoice Log ({company.receiptLog?.length || 0})
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('invoice-editor')}
               className={`hover:text-slate-900 transition-colors whitespace-nowrap ${
                 activeTab === 'invoice-editor'
@@ -1204,6 +1558,23 @@ export default function App() {
               onQuickDownloadInvoice={handleQuickDownloadInvoice}
               onQuickPrintInvoice={handleQuickPrintInvoice}
               onQuickWhatsAppInvoice={handleQuickWhatsAppInvoice}
+              onDeleteInvoice={handleDeleteInvoice}
+            />
+          )}
+
+          {(activeTab === 'invoice-log' || activeTab === 'receipt-log') && (
+            <InvoiceLogView
+              company={company}
+              term={term}
+              clients={clients}
+              selectedMonth={selectedMonth}
+              setSelectedMonth={setSelectedMonth}
+              onDeleteInvoiceFromLog={handleDeleteInvoiceFromLog}
+              onClearInvoiceLog={handleClearInvoiceLog}
+              onOpenInEditor={handleOpenInvoiceInEditor}
+              onQuickDownloadInvoice={handleQuickDownloadInvoice}
+              onQuickPrintInvoice={handleQuickPrintInvoice}
+              onQuickWhatsAppInvoice={handleQuickWhatsAppInvoice}
             />
           )}
 
@@ -1217,6 +1588,8 @@ export default function App() {
               onSelectClientAndMonth={handleSelectEditorClientAndMonth}
               invoiceDoc={invoiceDoc}
               onChangeInvoiceDoc={setInvoiceDoc}
+              onSaveInvoiceChanges={handleSaveInvoiceChanges}
+              onDeleteInvoice={handleDeleteInvoice}
               onSaveAsDefaultInvoice={handleSaveAsDefaultInvoice}
               onResetFromLedger={() =>
                 handleSelectEditorClientAndMonth(editorClientId, selectedMonth)

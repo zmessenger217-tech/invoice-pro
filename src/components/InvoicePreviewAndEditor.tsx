@@ -13,6 +13,7 @@ import {
   Printer,
   QrCode,
   RefreshCw,
+  Save,
   Trash2,
 } from 'lucide-react';
 import {
@@ -45,6 +46,8 @@ interface InvoicePreviewAndEditorProps {
   onSelectClientAndMonth: (clientId: string, month: string) => void;
   invoiceDoc: InvoiceEditableDocument;
   onChangeInvoiceDoc: (updated: InvoiceEditableDocument) => void;
+  onSaveInvoiceChanges?: (updated: InvoiceEditableDocument) => void;
+  onDeleteInvoice?: (clientId: string, month: string) => void;
   onSaveAsDefaultInvoice: (docData: InvoiceEditableDocument) => void;
   onResetFromLedger: () => void;
 }
@@ -82,10 +85,13 @@ export const InvoicePreviewAndEditor: React.FC<
   onSelectClientAndMonth,
   invoiceDoc,
   onChangeInvoiceDoc,
+  onSaveInvoiceChanges,
+  onDeleteInvoice,
   onSaveAsDefaultInvoice,
   onResetFromLedger,
 }) => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [whatsappModal, setWhatsappModal] = useState<{
     filename: string;
     whatsappUrl: string;
@@ -111,6 +117,16 @@ export const InvoicePreviewAndEditor: React.FC<
       ...invoiceDoc,
       [key]: value,
     });
+  };
+
+  const handleSaveInvoice = () => {
+    if (onSaveInvoiceChanges) {
+      onSaveInvoiceChanges(invoiceDoc);
+    }
+    setToastMessage(
+      `Invoice saved successfully! Updated ledger record for ${invoiceDoc.clientName} (${selectedMonth}).`
+    );
+    setTimeout(() => setToastMessage(null), 5000);
   };
 
   const handleWhatsappRateOrMessagesChange = (
@@ -252,6 +268,16 @@ export const InvoicePreviewAndEditor: React.FC<
           <div className="pt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={handleSaveInvoice}
+              className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-xs"
+              title="Save all changes to this client's invoice and monthly ledger"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Save Invoice</span>
+            </button>
+
+            <button
+              type="button"
               onClick={onResetFromLedger}
               className="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
               title="Sync latest values from Check & Balance"
@@ -269,6 +295,18 @@ export const InvoicePreviewAndEditor: React.FC<
               <BookmarkCheck className="w-4 h-4 text-indigo-600" />
               <span>Set as Default Invoice</span>
             </button>
+
+            {onDeleteInvoice && selectedClientId && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                title="Delete/Reset this invoice for this month"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Invoice</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -706,15 +744,24 @@ export const InvoicePreviewAndEditor: React.FC<
               </div>
             </div>
 
-            {/* Save as Default Invoice CTA */}
-            <div className="pt-3 border-t border-slate-200">
+            {/* Save Buttons */}
+            <div className="pt-3 border-t border-slate-200 space-y-2">
+              <button
+                type="button"
+                onClick={handleSaveInvoice}
+                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2 shadow-xs"
+              >
+                <Save className="w-4 h-4" />
+                <span>Save Invoice Changes</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleSetAsDefault}
-                className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2 shadow-xs"
+                className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2"
               >
-                <BookmarkCheck className="w-4 h-4 text-blue-400" />
-                <span>Set This as Default Invoice</span>
+                <BookmarkCheck className="w-3.5 h-3.5 text-slate-500" />
+                <span>Set as Default Invoice Template</span>
               </button>
             </div>
           </div>
@@ -1251,6 +1298,53 @@ export const InvoicePreviewAndEditor: React.FC<
                 className="px-3.5 py-2 text-xs font-medium text-slate-600 hover:text-slate-900"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Invoice Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-sm w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Delete Invoice #{invoiceDoc.invoiceNumber}?
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Are you sure you want to delete the invoice for{' '}
+                  <strong className="text-slate-800">{invoiceDoc.clientName}</strong> for{' '}
+                  <strong>{selectedMonth}</strong>? This will reset all current month charges and remove it from the Invoice Log.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteInvoice && selectedClientId) {
+                    onDeleteInvoice(selectedClientId, selectedMonth);
+                    setShowDeleteModal(false);
+                    setToastMessage('Invoice deleted successfully');
+                    setTimeout(() => setToastMessage(null), 3500);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Confirm Delete</span>
               </button>
             </div>
           </div>
