@@ -7,6 +7,7 @@ interface RevenueExpenseChartProps {
   activeMonthRevenue: number;
   activeMonthExpenses: number;
   currency?: string;
+  showExpenses?: boolean;
 }
 
 export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
@@ -15,6 +16,7 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
   activeMonthRevenue,
   activeMonthExpenses,
   currency = 'Rs.',
+  showExpenses = true,
 }) => {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
@@ -31,7 +33,9 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
 
   const maxValue = Math.max(
     500000,
-    ...data.map((d) => Math.max(d.revenue, d.expenses))
+    ...data.map((d) =>
+      showExpenses ? Math.max(d.revenue, d.expenses) : d.revenue
+    )
   );
 
   const yTicks = [500, 400, 300, 200, 0];
@@ -51,10 +55,12 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
             <span className="w-3 h-3 rounded-xs bg-blue-600" />
             <span className="text-slate-700">Revenue</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-xs bg-indigo-200" />
-            <span className="text-slate-700">Expenses</span>
-          </div>
+          {showExpenses && (
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-xs bg-indigo-200" />
+              <span className="text-slate-700">Expenses</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -107,9 +113,11 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
                       <div className="font-mono text-blue-300">
                         Rev: {formatCurrency(item.revenue, currency)}
                       </div>
-                      <div className="font-mono text-indigo-200">
-                        Exp: {formatCurrency(item.expenses, currency)}
-                      </div>
+                      {showExpenses && (
+                        <div className="font-mono text-indigo-200">
+                          Exp: {formatCurrency(item.expenses, currency)}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -122,14 +130,16 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
                           : 'bg-blue-600/85 group-hover:bg-blue-600'
                       }`}
                     />
-                    <div
-                      style={{ height: `${expPct}%` }}
-                      className={`w-2.5 sm:w-3.5 rounded-t-sm transition-opacity ${
-                        isCurrent
-                          ? 'bg-indigo-300'
-                          : 'bg-indigo-200 group-hover:bg-indigo-300'
-                      }`}
-                    />
+                    {showExpenses && (
+                      <div
+                        style={{ height: `${expPct}%` }}
+                        className={`w-2.5 sm:w-3.5 rounded-t-sm transition-opacity ${
+                          isCurrent
+                            ? 'bg-indigo-300'
+                            : 'bg-indigo-200 group-hover:bg-indigo-300'
+                        }`}
+                      />
+                    )}
                   </div>
 
                   <span

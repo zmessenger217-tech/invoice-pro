@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
-  Receipt,
   Settings,
   ToggleLeft,
   UserPlus,
@@ -72,7 +71,10 @@ import {
   resolveActiveLogoUrl,
 } from './utils/usePWAInstall';
 
-const STORAGE_KEY = 'invoicepro_workspace_clean_v2';
+const SESSION_UID_KEY = 'invoicepro_active_session_uid';
+function getAccountStorageKey(uid: string): string {
+  return `invoicepro_workspace_uid_${uid}`;
+}
 
 function buildEditableInvoiceFromClient(
   company: CompanyProfile,
@@ -196,80 +198,26 @@ export default function App() {
     getCurrentMonthLabel()
   );
 
-  // Remove old pre-seeded localStorage key on mount
+  // Remove any legacy shared localStorage keys on mount so accounts never share browser cache
   useEffect(() => {
     try {
       localStorage.removeItem('invoicepro_workspace_v1');
+      localStorage.removeItem('invoicepro_workspace_clean_v2');
     } catch {
       // ignore
     }
   }, []);
 
-  const [company, setCompany] = useState<CompanyProfile>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.company) {
-          return {
-            ...parsed.company,
-            logoDataUrl:
-              parsed.company.logoDataUrl &&
-              !parsed.company.logoDataUrl.startsWith('/src/')
-                ? parsed.company.logoDataUrl
-                : DEFAULT_BRAND_LOGO_DATA_URL,
-          };
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return {
-      ...INITIAL_COMPANY_PROFILE,
-      logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
-    };
-  });
+  const [company, setCompany] = useState<CompanyProfile>(() => ({
+    ...INITIAL_COMPANY_PROFILE,
+    logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+  }));
 
-  const [clients, setClients] = useState<ClientEntity[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.clients)) {
-          return parsed.clients;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return INITIAL_CLIENTS;
-  });
+  const [clients, setClients] = useState<ClientEntity[]>(INITIAL_CLIENTS);
 
-  const [expenses, setExpenses] = useState<ExpenseItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.expenses)) return parsed.expenses;
-      }
-    } catch {
-      // ignore
-    }
-    return INITIAL_EXPENSES;
-  });
+  const [expenses, setExpenses] = useState<ExpenseItem[]>(INITIAL_EXPENSES);
 
-  const [partners, setPartners] = useState<PartnerItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.partners)) return parsed.partners;
-      }
-    } catch {
-      // ignore
-    }
-    return INITIAL_PARTNERS;
-  });
+  const [partners, setPartners] = useState<PartnerItem[]>(INITIAL_PARTNERS);
 
   const [editorClientId, setEditorClientId] = useState<string>('');
   const [invoiceDoc, setInvoiceDoc] = useState<InvoiceEditableDocument>(() =>
@@ -280,26 +228,31 @@ export default function App() {
     )
   );
 
-  // Keep invoiceDoc billingMonth, Issue Date, and Due Date dynamically synced when selectedMonth changes
+  // Keep invoiceDoc and editorClientId dynamically synced with the current account's clients, company, and selectedMonth
   useEffect(() => {
-    const client =
+    const validClient =
       clients.find((c) => c.id === editorClientId) || clients[0] || undefined;
-    if (client && !editorClientId) {
-      setEditorClientId(client.id);
+    const nextClientId = validClient ? validClient.id : '';
+    if (nextClientId !== editorClientId) {
+      setEditorClientId(nextClientId);
     }
-    setInvoiceDoc(buildEditableInvoiceFromClient(company, client, selectedMonth));
-  }, [selectedMonth]);
+    setInvoiceDoc(
+      buildEditableInvoiceFromClient(company, validClient, selectedMonth)
+    );
+  }, [selectedMonth, clients, company]);
 
+  // Save cache strictly under the authenticated user's UID key only
   useEffect(() => {
+    if (!firebaseUser) return;
     try {
       localStorage.setItem(
-        STORAGE_KEY,
+        getAccountStorageKey(firebaseUser.uid),
         JSON.stringify({ company, clients, expenses, partners })
       );
     } catch {
       // ignore
     }
-  }, [company, clients, expenses, partners]);
+  }, [firebaseUser, company, clients, expenses, partners]);
 
   // Ensure default brand logo is converted to a base64 Data URL so jsPDF and Print always render it
   useEffect(() => {
@@ -331,14 +284,19 @@ export default function App() {
     img.src = DEFAULT_BRAND_LOGO_PATH;
   }, []);
 
-  // Listen to Firebase Auth state changes
+  // Listen to Firebase Auth state changes — only restore active tab session if user explicitly logged in during this session
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setFirebaseUser(user);
       if (user) {
-        if (!isSigningUpRef.current) {
-          setAuthScreenMode((prev) => (prev === 'login' ? 'app' : prev));
+        const activeSessionUid = sessionStorage.getItem(SESSION_UID_KEY);
+        if (activeSessionUid === user.uid) {
+          setFirebaseUser(user);
+          if (!isSigningUpRef.current) {
+            setAuthScreenMode((prev) => (prev === 'login' ? 'app' : prev));
+          }
         }
+      } else {
+        setFirebaseUser(null);
       }
     });
     return () => unsubscribe();
@@ -435,6 +393,15 @@ export default function App() {
         .filter((e) => e.month === selectedMonth)
         .reduce((sum, e) => sum + e.amount, 0),
     [expenses, selectedMonth]
+  );
+
+  const partnerPayoutsTotal = useMemo(
+    () =>
+      partners.reduce((sum, p) => {
+        const isPaid = p.paidMonths[selectedMonth]?.paid;
+        return sum + (isPaid ? p.monthlyPayment : 0);
+      }, 0),
+    [partners, selectedMonth]
   );
 
   const handleUpdateCompany = async (updated: CompanyProfile) => {
@@ -885,11 +852,27 @@ export default function App() {
         }}
         onLogin={async (email, password, rememberMe) => {
           isSigningUpRef.current = false;
+          // Clear any previous state before authenticating
+          setCompany({
+            ...INITIAL_COMPANY_PROFILE,
+            email: email.trim(),
+            logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+          });
+          setClients([]);
+          setExpenses([]);
+          setPartners([]);
+          setEditorClientId('');
+
           const user = await signInWithEmailPassword(
             email,
             password,
             rememberMe
           );
+          try {
+            sessionStorage.setItem(SESSION_UID_KEY, user.uid);
+          } catch {
+            // ignore
+          }
           setFirebaseUser(user);
           const loaded = await loadOrBootstrapWorkspace(
             user,
@@ -906,6 +889,7 @@ export default function App() {
           setClients(loaded.clients);
           setExpenses(loaded.expenses);
           setPartners(loaded.partners);
+          setActiveTab('dashboard');
           setAuthScreenMode('app');
         }}
         onSignUp={async (fullName, email, password) => {
@@ -915,17 +899,29 @@ export default function App() {
             email: email.trim(),
             logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
           };
+          setCompany(initialProfile);
+          setClients([]);
+          setExpenses([]);
+          setPartners([]);
+          setEditorClientId('');
+
           const user = await signUpWithEmailPassword(
             fullName,
             email,
             password,
             initialProfile
           );
+          try {
+            sessionStorage.setItem(SESSION_UID_KEY, user.uid);
+          } catch {
+            // ignore
+          }
           setFirebaseUser(user);
           setCompany(initialProfile);
           setClients([]);
           setExpenses([]);
           setPartners([]);
+          setActiveTab('dashboard');
           setAuthScreenMode('company-setup');
         }}
       />
@@ -942,7 +938,6 @@ export default function App() {
     { id: 'check-balance', label: 'Check & Balance', icon: CheckSquare },
     { id: 'invoices', label: 'Invoices', icon: FileText },
     { id: 'invoice-editor', label: 'Invoice Editor', icon: Edit3 },
-    { id: 'expenses', label: 'Expenses', icon: Receipt },
     { id: 'partners', label: 'Partners', icon: Users },
     { id: 'finance-report', label: 'Finance Report', icon: BarChart3 },
     {
@@ -1036,14 +1031,14 @@ export default function App() {
             onClick={async () => {
               isSigningUpRef.current = false;
               try {
+                sessionStorage.removeItem(SESSION_UID_KEY);
+              } catch {
+                // ignore
+              }
+              try {
                 await signOutFirebaseUser();
               } catch {
                 // ignore sign out error
-              }
-              try {
-                localStorage.removeItem(STORAGE_KEY);
-              } catch {
-                // ignore storage clear error
               }
               setFirebaseUser(null);
               setCompany({
@@ -1053,6 +1048,8 @@ export default function App() {
               setClients(INITIAL_CLIENTS);
               setExpenses(INITIAL_EXPENSES);
               setPartners(INITIAL_PARTNERS);
+              setEditorClientId('');
+              setActiveTab('dashboard');
               setAuthScreenMode('login');
             }}
             title="Log Out"
@@ -1199,6 +1196,7 @@ export default function App() {
               setSelectedMonth={setSelectedMonth}
               monthlyRevenue={monthlyRevenue}
               monthlyExpenses={monthlyExpenses}
+              partnerPayoutsTotal={partnerPayoutsTotal}
               onSaveClient={handleSaveClient}
               onDeleteClient={handleDeleteClient}
               onRecordPaymentWithCharges={handleRecordPaymentWithCharges}

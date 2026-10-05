@@ -79,16 +79,17 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
     company.logoDataUrl
   );
 
-  // Keep Company Setup fields synced with loaded Firebase company profile
+  // Keep Company Setup fields strictly synced with the active account's company profile
   useEffect(() => {
-    if (company.name) setCompanyName(company.name);
-    if (company.phone) setPhone(company.phone);
-    if (company.email) setCompanyEmail(company.email);
-    if (company.website) setWebsite(company.website);
-    if (company.category) setCategory(company.category);
-    if (company.customSingular) setCustomSingular(company.customSingular);
-    if (company.logoDataUrl) setLogoDataUrl(company.logoDataUrl);
+    setCompanyName(company.name || '');
+    setPhone(company.phone || '');
+    setCompanyEmail(company.email || email || '');
+    setWebsite(company.website || '');
+    setCategory(company.category || 'School Management');
+    setCustomSingular(company.customSingular || '');
+    setLogoDataUrl(company.logoDataUrl);
   }, [
+    mode,
     company.name,
     company.phone,
     company.email,
@@ -200,17 +201,17 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
             <div className="md:col-span-7 p-8 md:p-10 flex flex-col justify-center">
               <div className="flex items-center gap-2.5 mb-2">
                 <img
-                  src={resolveActiveLogoUrl(company.logoDataUrl)}
+                  src={resolveActiveLogoUrl(undefined)}
                   alt="InvoicePro Logo"
                   referrerPolicy="no-referrer"
                   className="w-9 h-9 rounded-xl object-contain bg-slate-900 p-0.5 border border-slate-200 shadow-xs"
                 />
                 <span className="text-xl font-bold tracking-tight text-slate-900">
-                  {company.name || 'InvoicePro'}
+                  InvoicePro
                 </span>
               </div>
               <p className="text-xs text-slate-500 mb-7">
-                Manage Your {term.singular} Finances Easily
+                Manage Your Business &amp; Institution Finances Easily
               </p>
 
               {authError && (
@@ -360,13 +361,13 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
           <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
             <div className="flex items-center justify-center gap-2.5 mb-3">
               <img
-                src={resolveActiveLogoUrl(company.logoDataUrl)}
+                src={resolveActiveLogoUrl(undefined)}
                 alt="InvoicePro Logo"
                 referrerPolicy="no-referrer"
                 className="w-9 h-9 rounded-xl object-contain bg-slate-900 p-0.5 border border-slate-200 shadow-xs"
               />
               <span className="text-xl font-bold tracking-tight text-slate-900">
-                {company.name || 'InvoicePro'}
+                InvoicePro
               </span>
             </div>
             <h1 className="text-center text-lg font-bold text-slate-900">
@@ -500,13 +501,13 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
           <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
             <div className="flex items-center justify-center gap-2.5 mb-4">
               <img
-                src={resolveActiveLogoUrl(company.logoDataUrl)}
+                src={resolveActiveLogoUrl(undefined)}
                 alt="InvoicePro Logo"
                 referrerPolicy="no-referrer"
                 className="w-9 h-9 rounded-xl object-contain bg-slate-900 p-0.5 border border-slate-200 shadow-xs"
               />
               <span className="text-xl font-bold tracking-tight text-slate-900">
-                {company.name || 'InvoicePro'}
+                InvoicePro
               </span>
             </div>
             <h1 className="text-center text-lg font-bold text-slate-900">

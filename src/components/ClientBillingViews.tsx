@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Building2,
   CheckCircle2,
-  CreditCard,
   Download,
   Edit3,
   Eye,
@@ -46,6 +45,7 @@ interface ClientBillingViewsProps {
   setSelectedMonth: (m: string) => void;
   monthlyRevenue: number;
   monthlyExpenses: number;
+  partnerPayoutsTotal: number;
   onSaveClient: (client: ClientEntity, isNew: boolean) => void;
   onDeleteClient: (clientId: string) => void;
   onRecordPaymentWithCharges: (
@@ -82,6 +82,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   setSelectedMonth,
   monthlyRevenue,
   monthlyExpenses,
+  partnerPayoutsTotal,
   onSaveClient,
   onDeleteClient,
   onRecordPaymentWithCharges,
@@ -436,17 +437,20 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between">
+          <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-5 flex items-center justify-between">
             <div>
-              <div className="text-xs font-medium text-slate-500">
-                Net Monthly Balance
+              <div className="text-xs font-medium text-slate-600">
+                Total Revenue After Partner Payments
               </div>
-              <div className="text-2xl font-bold text-slate-900 font-mono tabular-nums mt-1.5">
-                {formatCurrency(monthlyRevenue - monthlyExpenses, currency)}
+              <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
+                {formatCurrency(monthlyRevenue - partnerPayoutsTotal, currency)}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                After {formatCurrency(partnerPayoutsTotal, currency)} partner payments
               </div>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
-              <CreditCard className="w-5 h-5" />
+            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <TrendingUp className="w-5 h-5" />
             </div>
           </div>
         </div>

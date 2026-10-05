@@ -27,7 +27,6 @@ import {
   SoftwareCategory,
 } from '../types';
 import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
-import { PWAInstallButton } from './PWAInstallModal';
 import { RevenueExpenseChart } from './RevenueExpenseChart';
 
 interface FinanceAndSettingsViewsProps {
@@ -439,7 +438,7 @@ export const FinanceAndSettingsViews: React.FC<
           <div>
             <h1 className="text-xl font-bold text-slate-900">Partners</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Manage partners and monthly payouts. Marking a partner as paid automatically logs an expense.
+              Manage partners and monthly payouts for <strong>{selectedMonth}</strong>.
             </p>
           </div>
           <select
@@ -453,6 +452,39 @@ export const FinanceAndSettingsViews: React.FC<
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Partner Revenue Summary Blocks */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="text-xs font-medium text-slate-500">
+              Total Revenue ({selectedMonth})
+            </div>
+            <div className="text-2xl font-bold text-slate-900 font-mono tabular-nums mt-1.5">
+              {formatCurrency(monthlyRevenue, currency)}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="text-xs font-medium text-slate-500">
+              Partner Payments ({selectedMonth})
+            </div>
+            <div className="text-2xl font-bold text-blue-600 font-mono tabular-nums mt-1.5">
+              {formatCurrency(partnerPayoutsTotal, currency)}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-5">
+            <div className="text-xs font-medium text-slate-600">
+              Total Revenue After Partner Payments
+            </div>
+            <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
+              {formatCurrency(remainingAfterPartners, currency)}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">
+              Total revenue after giving partner payments
+            </div>
+          </div>
         </div>
 
         {/* Add Partner Card */}
@@ -641,11 +673,10 @@ export const FinanceAndSettingsViews: React.FC<
   if (activeTab === 'finance-report') {
     const scale = reportScope === 'Year' ? 12 : 1;
     const scaledRevenue = monthlyRevenue * scale;
-    const scaledExpenses = monthlyExpenses * scale;
     const scaledPartners = partnerPayoutsTotal * scale;
     const scaledCollected = totalCollected * scale;
     const scaledDues = totalOutstandingDues * scale;
-    const scaledNetBalance = scaledRevenue - scaledExpenses;
+    const scaledNetBalance = scaledRevenue - scaledPartners;
 
     return (
       <div className="space-y-6">
@@ -706,7 +737,7 @@ export const FinanceAndSettingsViews: React.FC<
           </div>
         </div>
 
-        {/* 6 Summary Cards in 3x2 Grid (Matches Screen 11) */}
+        {/* Summary Cards in Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <div className="text-xs font-medium text-slate-500">
@@ -719,19 +750,22 @@ export const FinanceAndSettingsViews: React.FC<
 
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <div className="text-xs font-medium text-slate-500">
-              Total Expenses
-            </div>
-            <div className="text-2xl font-bold text-rose-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledExpenses, currency)}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="text-xs font-medium text-slate-500">
               Partner Payments
             </div>
             <div className="text-2xl font-bold text-blue-600 font-mono tabular-nums mt-1.5">
               {formatCurrency(scaledPartners, currency)}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-5">
+            <div className="text-xs font-medium text-slate-600">
+              Total Revenue After Partner Payments
+            </div>
+            <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
+              {formatCurrency(scaledNetBalance, currency)}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">
+              Total revenue after giving partner payments
             </div>
           </div>
 
@@ -765,11 +799,12 @@ export const FinanceAndSettingsViews: React.FC<
 
         {/* Monthly Overview Chart */}
         <RevenueExpenseChart
-          title="Monthly Overview"
+          title="Monthly Revenue Overview"
           activeMonth={selectedMonth}
           activeMonthRevenue={monthlyRevenue}
           activeMonthExpenses={monthlyExpenses}
           currency={currency}
+          showExpenses={false}
         />
       </div>
     );
@@ -957,15 +992,9 @@ export const FinanceAndSettingsViews: React.FC<
           Company &amp; Invoice Settings
         </h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Change company logo, add payment QR code, configure default Issue Date &amp; Due Date, customize Default Invoice Header &amp; Footer, or install the WebApp on Windows &amp; Android
+          Change company logo, add payment QR code, configure default Issue Date &amp; Due Date, and customize Default Invoice Header &amp; Footer
         </p>
       </div>
-
-      <PWAInstallButton
-        company={company}
-        onUpdateCompany={onUpdateCompany}
-        variant="settings"
-      />
 
       {settingsSaved && (
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-800 flex items-center gap-2">

@@ -374,6 +374,13 @@ export async function signUpWithEmailPassword(
   password: string,
   defaultCompany: CompanyProfile
 ): Promise<User> {
+  if (auth.currentUser) {
+    try {
+      await firebaseSignOut(auth);
+    } catch {
+      // ignore
+    }
+  }
   await setPersistence(auth, browserLocalPersistence);
   const cred = await createUserWithEmailAndPassword(
     auth,
@@ -388,7 +395,7 @@ export async function signUpWithEmailPassword(
     }
   }
 
-  // Create initial workspace document in Firestore
+  // Create initial workspace document in Firestore for this specific user UID
   const cleanUid = sanitizeId(cred.user.uid);
   const workspacePath = `workspaces/${cleanUid}`;
   const workspaceRef = doc(db, 'workspaces', cleanUid);
@@ -422,6 +429,13 @@ export async function signInWithEmailPassword(
   password: string,
   rememberMe = true
 ): Promise<User> {
+  if (auth.currentUser) {
+    try {
+      await firebaseSignOut(auth);
+    } catch {
+      // ignore
+    }
+  }
   await setPersistence(
     auth,
     rememberMe ? browserLocalPersistence : browserSessionPersistence
@@ -503,9 +517,8 @@ export function subscribeToWorkspaceRealtime(
   const expensesPath = `workspaces/${userId}/expenses`;
   const partnersPath = `workspaces/${userId}/partners`;
 
-  // Ensure workspace doc exists and test connection
+  // Test connection on boot
   void testConnection();
-  void ensureWorkspaceDocumentExists(userId, defaultCompany);
 
   const unsubWorkspace = onSnapshot(
     doc(db, 'workspaces', userId),
