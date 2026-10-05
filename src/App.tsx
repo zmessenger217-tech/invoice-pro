@@ -20,10 +20,7 @@ import { AuthAndOnboarding } from './components/AuthAndOnboarding';
 import { ClientBillingViews } from './components/ClientBillingViews';
 import { FinanceAndSettingsViews } from './components/FinanceAndSettingsViews';
 import { InvoicePreviewAndEditor } from './components/InvoicePreviewAndEditor';
-import {
-  OfflineIndicator,
-  PWAInstallButton,
-} from './components/PWAInstallModal';
+import { OfflineIndicator } from './components/PWAInstallModal';
 import {
   CATEGORY_MAP,
   getCurrentMonthLabel,
@@ -826,20 +823,20 @@ export default function App() {
         onSaveCompanySetup={handleUpdateCompany}
         onGoogleLogin={async () => {
           await signInWithGooglePopup();
-          if (!company.name) {
-            setAuthScreenMode('company-setup');
-          } else {
-            setAuthScreenMode('app');
-          }
+          setAuthScreenMode('app');
         }}
         onEmailAuthComplete={(email, isSignUp) => {
-          if (isSignUp || !company.name) {
+          if (isSignUp) {
             setCompany((prev) => ({
               ...prev,
               email: prev.email || email,
             }));
             setAuthScreenMode('company-setup');
           } else {
+            setCompany((prev) => ({
+              ...prev,
+              email: prev.email || email,
+            }));
             setAuthScreenMode('app');
           }
         }}
@@ -946,13 +943,6 @@ export default function App() {
 
         {/* Bottom Collapse / Expand & Logout */}
         <div className="p-3 border-t border-slate-800 space-y-1.5 shrink-0">
-          <PWAInstallButton
-            company={company}
-            onUpdateCompany={handleUpdateCompany}
-            variant="sidebar"
-            collapsed={sidebarCollapsed}
-          />
-
           <button
             type="button"
             onClick={() => {
@@ -1054,14 +1044,8 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Zone 3: Dynamic Terminology Category Selector + Download WebApp + Company Setup */}
+          {/* Zone 3: Dynamic Terminology Category Selector + Company Setup */}
           <div className="flex items-center gap-2.5 shrink-0">
-            <PWAInstallButton
-              company={company}
-              onUpdateCompany={handleUpdateCompany}
-              variant="topbar"
-            />
-
             <select
               aria-label="Software Category"
               value={company.category}
