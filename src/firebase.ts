@@ -1,10 +1,17 @@
 import { initializeApp } from 'firebase/app';
 import {
+  browserLocalPersistence,
+  browserSessionPersistence,
+  createUserWithEmailAndPassword,
   GoogleAuthProvider,
   getAuth,
   onAuthStateChanged,
+  sendPasswordResetEmail,
+  setPersistence,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
+  updateProfile,
   User,
 } from 'firebase/auth';
 import {
@@ -15,21 +22,27 @@ import {
   getDocFromServer,
   getDocs,
   initializeFirestore,
+  onSnapshot,
   query,
   serverTimestamp,
   setDoc,
   setLogLevel,
   updateDoc,
   where,
-  writeBatch,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 import {
   ClientEntity,
   CompanyProfile,
   ExpenseItem,
+  InvoiceTheme,
   PartnerItem,
+  SoftwareCategory,
 } from './types';
+import {
+  DEFAULT_BRAND_LOGO_DATA_URL,
+  resolveActiveLogoUrl,
+} from './utils/usePWAInstall';
 
 // Silence internal @firebase/firestore WebChannel transport retry console.error spam in iframe environments
 setLogLevel('silent');
@@ -101,7 +114,9 @@ export function handleFirestoreError(
 export async function testConnection(): Promise<void> {
   if (!auth.currentUser) return;
   try {
-    await getDocFromServer(doc(db, 'workspaces', sanitizeId(auth.currentUser.uid)));
+    await getDocFromServer(
+      doc(db, 'workspaces', sanitizeId(auth.currentUser.uid))
+    );
   } catch (error) {
     if (
       error instanceof Error &&
@@ -125,9 +140,298 @@ function clampString(
   return clean.slice(0, maxLen);
 }
 
-function sanitizeId(rawId: string): string {
+export function sanitizeId(rawId: string): string {
   const cleaned = rawId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 128);
   return cleaned || 'item-1';
+}
+
+export async function compressImageDataUrl(
+  dataUrl: string | undefined,
+  maxDim = 180
+): Promise<string | undefined> {
+  if (!dataUrl) return undefined;
+  if (dataUrl === DEFAULT_BRAND_LOGO_DATA_URL) return undefined;
+  if (!dataUrl.startsWith('data:image/')) return undefined;
+  if (dataUrl.length <= 45000) return dataUrl;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+        const width = Math.max(1, Math.round((img.width || maxDim) * scale));
+        const height = Math.max(1, Math.round((img.height || maxDim) * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl.slice(0, 60000));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL('image/png', 0.85);
+        resolve(compressed.length <= 80000 ? compressed : canvas.toDataURL('image/jpeg', 0.75));
+      } catch {
+        resolve(undefined);
+      }
+    };
+    img.onerror = () => resolve(undefined);
+    img.src = dataUrl;
+  });
+}
+
+function buildSettingsMap(company: CompanyProfile): Record<string, unknown> {
+  const customLogo =
+    company.logoDataUrl &&
+    company.logoDataUrl.startsWith('data:image/') &&
+    company.logoDataUrl !== DEFAULT_BRAND_LOGO_DATA_URL &&
+    company.logoDataUrl.length <= 120000
+      ? company.logoDataUrl
+      : '';
+
+  const customQr =
+    company.qrCodeDataUrl &&
+    company.qrCodeDataUrl.startsWith('data:image/') &&
+    company.qrCodeDataUrl.length <= 120000
+      ? company.qrCodeDataUrl
+      : '';
+
+  return {
+    customSingular: clampString(company.customSingular, 60, ''),
+    customPlural: clampString(company.customPlural, 60, ''),
+    showQrCode: company.showQrCode !== false,
+    qrLabel: clampString(company.qrLabel, 80, 'Scan to Pay'),
+    defaultIssueDate: clampString(company.defaultIssueDate, 40, ''),
+    defaultDueDate: clampString(company.defaultDueDate, 40, ''),
+    invoiceHeaderTitle: clampString(company.invoiceHeaderTitle, 60, 'INVOICE'),
+    invoiceHeaderNote: clampString(
+      company.invoiceHeaderNote,
+      200,
+      'Official Monthly Software & Communication Billing Statement'
+    ),
+    invoiceFooterThankYou: clampString(
+      company.invoiceFooterThankYou,
+      160,
+      'Thank you for your business & trust!'
+    ),
+    invoiceFooterTerms: clampString(
+      company.invoiceFooterTerms,
+      300,
+      'Please remit payment by the due date via Bank Transfer or scan the QR code to pay online.'
+    ),
+    invoiceTheme: clampString(company.invoiceTheme, 40, 'royal-blue'),
+    defaultSoftwareLabel: clampString(
+      company.defaultSoftwareLabel,
+      80,
+      'Software Charges'
+    ),
+    defaultChatbotLabel: clampString(
+      company.defaultChatbotLabel,
+      80,
+      'Chatbot Charges'
+    ),
+    logoDataUrl: customLogo,
+    qrCodeDataUrl: customQr,
+  };
+}
+
+function parseWorkspaceDocToCompany(
+  wsData: Record<string, any>,
+  defaultCompany: CompanyProfile
+): CompanyProfile {
+  const settings =
+    wsData.settings && typeof wsData.settings === 'object'
+      ? wsData.settings
+      : {};
+
+  const validCategories: SoftwareCategory[] = [
+    'School Management',
+    'Store Management',
+    'Hospital Management',
+    'Restaurant Management',
+    'Other',
+  ];
+  const category: SoftwareCategory = validCategories.includes(wsData.category)
+    ? wsData.category
+    : defaultCompany.category || 'School Management';
+
+  const validThemes: InvoiceTheme[] = [
+    'royal-blue',
+    'midnight-slate',
+    'emerald-executive',
+  ];
+  const invoiceTheme: InvoiceTheme = validThemes.includes(settings.invoiceTheme)
+    ? settings.invoiceTheme
+    : defaultCompany.invoiceTheme || 'royal-blue';
+
+  const rawName = typeof wsData.name === 'string' ? wsData.name.trim() : '';
+  const resolvedName =
+    rawName && rawName !== 'My Company' ? rawName : defaultCompany.name || '';
+
+  const savedLogo =
+    typeof settings.logoDataUrl === 'string' &&
+    settings.logoDataUrl.startsWith('data:image/')
+      ? settings.logoDataUrl
+      : undefined;
+
+  return {
+    ...defaultCompany,
+    name: resolvedName,
+    tagline: wsData.tagline ?? defaultCompany.tagline,
+    phone: wsData.phone ?? defaultCompany.phone,
+    email: wsData.email ?? defaultCompany.email,
+    website: wsData.website ?? defaultCompany.website,
+    category,
+    currency: wsData.currency || defaultCompany.currency || 'Rs.',
+    customSingular:
+      settings.customSingular || defaultCompany.customSingular || undefined,
+    customPlural:
+      settings.customPlural || defaultCompany.customPlural || undefined,
+    showQrCode:
+      typeof settings.showQrCode === 'boolean'
+        ? settings.showQrCode
+        : defaultCompany.showQrCode !== false,
+    qrLabel: settings.qrLabel || defaultCompany.qrLabel || 'Scan to Pay',
+    defaultIssueDate:
+      settings.defaultIssueDate ?? defaultCompany.defaultIssueDate ?? '',
+    defaultDueDate:
+      settings.defaultDueDate ?? defaultCompany.defaultDueDate ?? '',
+    invoiceHeaderTitle:
+      settings.invoiceHeaderTitle ||
+      defaultCompany.invoiceHeaderTitle ||
+      'INVOICE',
+    invoiceHeaderNote:
+      settings.invoiceHeaderNote ??
+      defaultCompany.invoiceHeaderNote ??
+      'Official Monthly Software & Communication Billing Statement',
+    invoiceFooterThankYou:
+      settings.invoiceFooterThankYou ||
+      defaultCompany.invoiceFooterThankYou ||
+      'Thank you for your business & trust!',
+    invoiceFooterTerms:
+      settings.invoiceFooterTerms ??
+      defaultCompany.invoiceFooterTerms ??
+      'Please remit payment by the due date via Bank Transfer or scan the QR code to pay online.',
+    invoiceTheme,
+    defaultSoftwareLabel:
+      settings.defaultSoftwareLabel ||
+      defaultCompany.defaultSoftwareLabel ||
+      'Software Charges',
+    defaultChatbotLabel:
+      settings.defaultChatbotLabel ||
+      defaultCompany.defaultChatbotLabel ||
+      'Chatbot Charges',
+    logoDataUrl: resolveActiveLogoUrl(savedLogo || defaultCompany.logoDataUrl),
+    qrCodeDataUrl:
+      typeof settings.qrCodeDataUrl === 'string' &&
+      settings.qrCodeDataUrl.startsWith('data:image/')
+        ? settings.qrCodeDataUrl
+        : defaultCompany.qrCodeDataUrl,
+  };
+}
+
+export function formatFirebaseAuthError(error: unknown): string {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: string }).code)
+      : '';
+  const msg = error instanceof Error ? error.message : String(error);
+
+  if (
+    code === 'auth/email-already-in-use' ||
+    msg.includes('EMAIL_EXISTS') ||
+    msg.includes('email-already-in-use')
+  ) {
+    return 'An account with this email already exists. Please switch to Login to access your workspace.';
+  }
+  if (
+    code === 'auth/invalid-credential' ||
+    code === 'auth/user-not-found' ||
+    code === 'auth/wrong-password' ||
+    msg.includes('INVALID_LOGIN_CREDENTIALS')
+  ) {
+    return 'Invalid email or password. Please check your credentials or sign up if you do not have an account.';
+  }
+  if (code === 'auth/weak-password' || msg.includes('WEAK_PASSWORD')) {
+    return 'Password is too weak. Please enter at least 6 characters.';
+  }
+  if (code === 'auth/invalid-email' || msg.includes('INVALID_EMAIL')) {
+    return 'Please enter a valid email address.';
+  }
+  if (code === 'auth/too-many-requests') {
+    return 'Too many attempts. Please wait a moment or reset your password.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Network error while connecting to Firebase. Please check your internet connection.';
+  }
+  return msg || 'Authentication failed. Please try again.';
+}
+
+export async function signUpWithEmailPassword(
+  fullName: string,
+  email: string,
+  password: string,
+  defaultCompany: CompanyProfile
+): Promise<User> {
+  await setPersistence(auth, browserLocalPersistence);
+  const cred = await createUserWithEmailAndPassword(
+    auth,
+    email.trim(),
+    password
+  );
+  if (fullName.trim()) {
+    try {
+      await updateProfile(cred.user, { displayName: fullName.trim() });
+    } catch {
+      // ignore profile displayName update failure
+    }
+  }
+
+  // Create initial workspace document in Firestore
+  const cleanUid = sanitizeId(cred.user.uid);
+  const workspacePath = `workspaces/${cleanUid}`;
+  const workspaceRef = doc(db, 'workspaces', cleanUid);
+  try {
+    await setDoc(workspaceRef, {
+      ownerId: cleanUid,
+      name: clampString(defaultCompany.name, 120, 'My Company'),
+      tagline: clampString(
+        defaultCompany.tagline,
+        200,
+        'Smart Solutions for Better Education'
+      ),
+      phone: clampString(defaultCompany.phone, 40, ''),
+      email: clampString(email.trim() || defaultCompany.email, 120, ''),
+      website: clampString(defaultCompany.website, 120, ''),
+      category: defaultCompany.category || 'School Management',
+      currency: clampString(defaultCompany.currency, 10, 'Rs.'),
+      settings: buildSettingsMap(defaultCompany),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, workspacePath);
+  }
+
+  return cred.user;
+}
+
+export async function signInWithEmailPassword(
+  email: string,
+  password: string,
+  rememberMe = true
+): Promise<User> {
+  await setPersistence(
+    auth,
+    rememberMe ? browserLocalPersistence : browserSessionPersistence
+  );
+  const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+  return cred.user;
+}
+
+export async function sendPasswordReset(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email.trim());
 }
 
 export async function signInWithGooglePopup(): Promise<User> {
@@ -173,6 +477,7 @@ async function ensureWorkspaceDocumentExists(
         website: clampString(company?.website, 120, ''),
         category: company?.category || 'School Management',
         currency: clampString(company?.currency, 10, 'Rs.'),
+        settings: company ? buildSettingsMap(company) : {},
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -180,6 +485,131 @@ async function ensureWorkspaceDocumentExists(
       handleFirestoreError(error, OperationType.CREATE, workspacePath);
     }
   }
+}
+
+export function subscribeToWorkspaceRealtime(
+  user: User,
+  defaultCompany: CompanyProfile,
+  callbacks: {
+    onCompanyChange: (company: CompanyProfile) => void;
+    onClientsChange: (clients: ClientEntity[]) => void;
+    onExpensesChange: (expenses: ExpenseItem[]) => void;
+    onPartnersChange: (partners: PartnerItem[]) => void;
+  }
+): () => void {
+  const userId = sanitizeId(user.uid);
+  const workspacePath = `workspaces/${userId}`;
+  const clientsPath = `workspaces/${userId}/clients`;
+  const expensesPath = `workspaces/${userId}/expenses`;
+  const partnersPath = `workspaces/${userId}/partners`;
+
+  // Ensure workspace doc exists and test connection
+  void testConnection();
+  void ensureWorkspaceDocumentExists(userId, defaultCompany);
+
+  const unsubWorkspace = onSnapshot(
+    doc(db, 'workspaces', userId),
+    (snap) => {
+      if (snap.exists()) {
+        const parsedCompany = parseWorkspaceDocToCompany(
+          snap.data(),
+          defaultCompany
+        );
+        callbacks.onCompanyChange(parsedCompany);
+      }
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.GET, workspacePath);
+    }
+  );
+
+  const unsubClients = onSnapshot(
+    query(
+      collection(db, 'workspaces', userId, 'clients'),
+      where('ownerId', '==', userId)
+    ),
+    (snap) => {
+      const list: ClientEntity[] = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: data.name,
+          address: data.address,
+          phone: data.phone,
+          enabled: Boolean(data.enabled),
+          createdAt: '2026-01-10',
+          softwareEnabled: Boolean(data.softwareEnabled),
+          softwareCharges: Number(data.softwareCharges) || 0,
+          whatsappEnabled: Boolean(data.whatsappEnabled),
+          whatsappRate: Number(data.whatsappRate) || 0,
+          whatsappMessages: Number(data.whatsappMessages) || 0,
+          whatsappCharges: Number(data.whatsappCharges) || 0,
+          chatbotEnabled: Boolean(data.chatbotEnabled),
+          chatbotCharges: Number(data.chatbotCharges) || 0,
+          monthlyRecords: data.monthlyRecords || {},
+        };
+      });
+      callbacks.onClientsChange(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, clientsPath);
+    }
+  );
+
+  const unsubExpenses = onSnapshot(
+    query(
+      collection(db, 'workspaces', userId, 'expenses'),
+      where('ownerId', '==', userId)
+    ),
+    (snap) => {
+      const list: ExpenseItem[] = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          description: data.description,
+          amount: Number(data.amount) || 0,
+          category: data.category,
+          date: data.date,
+          month: data.month,
+          partnerName: data.partnerName || undefined,
+        };
+      });
+      callbacks.onExpensesChange(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, expensesPath);
+    }
+  );
+
+  const unsubPartners = onSnapshot(
+    query(
+      collection(db, 'workspaces', userId, 'partners'),
+      where('ownerId', '==', userId)
+    ),
+    (snap) => {
+      const list: PartnerItem[] = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: data.name,
+          phone: data.phone,
+          monthlyPayment: Number(data.monthlyPayment) || 0,
+          paidMonths: data.paidMonths || {},
+        };
+      });
+      callbacks.onPartnersChange(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, partnersPath);
+    }
+  );
+
+  return () => {
+    unsubWorkspace();
+    unsubClients();
+    unsubExpenses();
+    unsubPartners();
+  };
 }
 
 export async function loadOrBootstrapWorkspace(
@@ -195,7 +625,6 @@ export async function loadOrBootstrapWorkspace(
   partners: PartnerItem[];
   isNewWorkspace: boolean;
 }> {
-  // Ensure fresh auth token is ready before making Firestore calls
   try {
     await user.getIdToken();
   } catch {
@@ -227,8 +656,9 @@ export async function loadOrBootstrapWorkspace(
       phone: clampString(defaultCompany.phone, 40, ''),
       email: clampString(user.email || defaultCompany.email, 120, ''),
       website: clampString(defaultCompany.website, 120, ''),
-      category: defaultCompany.category,
+      category: defaultCompany.category || 'School Management',
       currency: clampString(defaultCompany.currency, 10, 'Rs.'),
+      settings: buildSettingsMap(defaultCompany),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -237,72 +667,6 @@ export async function loadOrBootstrapWorkspace(
       await setDoc(workspaceRef, workspacePayload);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, workspacePath);
-    }
-
-    if (
-      defaultClients.length > 0 ||
-      defaultExpenses.length > 0 ||
-      defaultPartners.length > 0
-    ) {
-      const batch = writeBatch(db);
-      for (const c of defaultClients) {
-        const cId = sanitizeId(c.id);
-        const cRef = doc(db, 'workspaces', userId, 'clients', cId);
-        batch.set(cRef, {
-          ownerId: userId,
-          name: clampString(c.name, 120, 'Client'),
-          address: clampString(c.address, 250, ''),
-          phone: clampString(c.phone, 40, ''),
-          enabled: Boolean(c.enabled),
-          softwareEnabled: Boolean(c.softwareEnabled),
-          softwareCharges: Math.max(0, Number(c.softwareCharges) || 0),
-          whatsappEnabled: Boolean(c.whatsappEnabled),
-          whatsappRate: Math.max(0, Number(c.whatsappRate) || 0),
-          whatsappMessages: Math.max(0, Number(c.whatsappMessages) || 0),
-          whatsappCharges: Math.max(0, Number(c.whatsappCharges) || 0),
-          chatbotEnabled: Boolean(c.chatbotEnabled),
-          chatbotCharges: Math.max(0, Number(c.chatbotCharges) || 0),
-          monthlyRecords: c.monthlyRecords || {},
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
-
-      for (const e of defaultExpenses) {
-        const eId = sanitizeId(e.id);
-        const eRef = doc(db, 'workspaces', userId, 'expenses', eId);
-        batch.set(eRef, {
-          ownerId: userId,
-          description: clampString(e.description, 160, 'Expense'),
-          amount: Math.max(0, Number(e.amount) || 0),
-          category: e.category,
-          date: clampString(e.date, 30, '15-05-2026'),
-          month: clampString(e.month, 40, 'May 2026'),
-          partnerName: clampString(e.partnerName, 120, ''),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
-
-      for (const p of defaultPartners) {
-        const pId = sanitizeId(p.id);
-        const pRef = doc(db, 'workspaces', userId, 'partners', pId);
-        batch.set(pRef, {
-          ownerId: userId,
-          name: clampString(p.name, 120, 'Partner'),
-          phone: clampString(p.phone, 40, ''),
-          monthlyPayment: Math.max(0, Number(p.monthlyPayment) || 0),
-          paidMonths: p.paidMonths || {},
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
-
-      try {
-        await batch.commit();
-      } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, workspacePath);
-      }
     }
 
     return {
@@ -318,17 +682,7 @@ export async function loadOrBootstrapWorkspace(
   }
 
   const wsData = workspaceSnap.data();
-  const company: CompanyProfile = {
-    ...defaultCompany,
-    name:
-      wsData.name === 'My Company' ? '' : wsData.name || defaultCompany.name,
-    tagline: wsData.tagline ?? defaultCompany.tagline,
-    phone: wsData.phone ?? defaultCompany.phone,
-    email: wsData.email ?? defaultCompany.email,
-    website: wsData.website ?? defaultCompany.website,
-    category: wsData.category || defaultCompany.category,
-    currency: wsData.currency || defaultCompany.currency,
-  };
+  const company = parseWorkspaceDocToCompany(wsData, defaultCompany);
 
   const clientsPath = `workspaces/${userId}/clients`;
   const expensesPath = `workspaces/${userId}/expenses`;
@@ -430,6 +784,14 @@ export async function syncWorkspaceProfileToFirestore(
   const path = `workspaces/${cleanUid}`;
   const ref = doc(db, 'workspaces', cleanUid);
 
+  const compressedLogo = await compressImageDataUrl(company.logoDataUrl, 180);
+  const compressedQr = await compressImageDataUrl(company.qrCodeDataUrl, 220);
+  const sanitizedCompany: CompanyProfile = {
+    ...company,
+    logoDataUrl: compressedLogo || company.logoDataUrl,
+    qrCodeDataUrl: compressedQr || company.qrCodeDataUrl,
+  };
+
   let snap;
   try {
     snap = await getDoc(ref);
@@ -441,25 +803,27 @@ export async function syncWorkspaceProfileToFirestore(
     if (!snap.exists()) {
       await setDoc(ref, {
         ownerId: cleanUid,
-        name: clampString(company.name, 120, 'My Company'),
-        tagline: clampString(company.tagline, 200, ''),
-        phone: clampString(company.phone, 40, ''),
-        email: clampString(company.email, 120, ''),
-        website: clampString(company.website, 120, ''),
-        category: company.category,
-        currency: clampString(company.currency, 10, 'Rs.'),
+        name: clampString(sanitizedCompany.name, 120, 'My Company'),
+        tagline: clampString(sanitizedCompany.tagline, 200, ''),
+        phone: clampString(sanitizedCompany.phone, 40, ''),
+        email: clampString(sanitizedCompany.email, 120, ''),
+        website: clampString(sanitizedCompany.website, 120, ''),
+        category: sanitizedCompany.category || 'School Management',
+        currency: clampString(sanitizedCompany.currency, 10, 'Rs.'),
+        settings: buildSettingsMap(sanitizedCompany),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
     } else {
       await updateDoc(ref, {
-        name: clampString(company.name, 120, 'My Company'),
-        tagline: clampString(company.tagline, 200, ''),
-        phone: clampString(company.phone, 40, ''),
-        email: clampString(company.email, 120, ''),
-        website: clampString(company.website, 120, ''),
-        category: company.category,
-        currency: clampString(company.currency, 10, 'Rs.'),
+        name: clampString(sanitizedCompany.name, 120, 'My Company'),
+        tagline: clampString(sanitizedCompany.tagline, 200, ''),
+        phone: clampString(sanitizedCompany.phone, 40, ''),
+        email: clampString(sanitizedCompany.email, 120, ''),
+        website: clampString(sanitizedCompany.website, 120, ''),
+        category: sanitizedCompany.category || 'School Management',
+        currency: clampString(sanitizedCompany.currency, 10, 'Rs.'),
+        settings: buildSettingsMap(sanitizedCompany),
         updatedAt: serverTimestamp(),
       });
     }

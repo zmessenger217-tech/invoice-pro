@@ -59,6 +59,10 @@
           "minLength": 1,
           "maxLength": 10
         },
+        "settings": {
+          "type": "object",
+          "description": "Extended workspace invoice template, terminology, and branding configuration."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",

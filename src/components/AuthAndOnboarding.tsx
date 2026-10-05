@@ -1,17 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Check,
   Eye,
   EyeOff,
   FileText,
+  Loader2,
   Lock,
   Mail,
   Phone,
-  UploadCloud,
   User as UserIcon,
 } from 'lucide-react';
 import { CATEGORY_MAP } from '../data/initialData';
+import { formatFirebaseAuthError, sendPasswordReset } from '../firebase';
 import {
   AuthScreenMode,
   CompanyProfile,
@@ -23,9 +24,17 @@ interface AuthAndOnboardingProps {
   mode: AuthScreenMode;
   setMode: (mode: AuthScreenMode) => void;
   company: CompanyProfile;
-  onSaveCompanySetup: (updated: CompanyProfile) => void;
-  onGoogleLogin: () => Promise<void>;
-  onEmailAuthComplete: (email: string, isSignUp: boolean) => void;
+  onSaveCompanySetup: (updated: CompanyProfile) => Promise<void> | void;
+  onLogin: (
+    email: string,
+    password: string,
+    rememberMe: boolean
+  ) => Promise<void>;
+  onSignUp: (
+    fullName: string,
+    email: string,
+    password: string
+  ) => Promise<void>;
 }
 
 const CATEGORIES: SoftwareCategory[] = [
@@ -41,8 +50,8 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
   setMode,
   company,
   onSaveCompanySetup,
-  onGoogleLogin,
-  onEmailAuthComplete,
+  onLogin,
+  onSignUp,
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,7 +63,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Company setup state — starts with whatever the user entered or empty
+  // Company setup state
   const [setupStep, setSetupStep] = useState<1 | 2 | 3>(1);
   const [companyName, setCompanyName] = useState(company.name || '');
   const [phone, setPhone] = useState(company.phone || '');
@@ -70,6 +79,25 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
     company.logoDataUrl
   );
 
+  // Keep Company Setup fields synced with loaded Firebase company profile
+  useEffect(() => {
+    if (company.name) setCompanyName(company.name);
+    if (company.phone) setPhone(company.phone);
+    if (company.email) setCompanyEmail(company.email);
+    if (company.website) setWebsite(company.website);
+    if (company.category) setCategory(company.category);
+    if (company.customSingular) setCustomSingular(company.customSingular);
+    if (company.logoDataUrl) setLogoDataUrl(company.logoDataUrl);
+  }, [
+    company.name,
+    company.phone,
+    company.email,
+    company.website,
+    company.category,
+    company.customSingular,
+    company.logoDataUrl,
+  ]);
+
   const term = CATEGORY_MAP[category];
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -84,60 +112,82 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthError(null);
-    if (!companyEmail && email) {
-      setCompanyEmail(email);
-    }
-    onEmailAuthComplete(email, false);
-  };
-
-  const handleSignUpSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!agreeTerms) {
-      setAuthError('Please agree to the Terms & Conditions to continue.');
-      return;
-    }
-    setAuthError(null);
-    if (!companyEmail && email) {
-      setCompanyEmail(email);
-    }
-    onEmailAuthComplete(email, true);
-  };
-
-  const handleGoogleClick = async () => {
     setAuthError(null);
     setIsSubmitting(true);
     try {
-      await onGoogleLogin();
-    } catch {
-      onEmailAuthComplete(email || 'user@company.com', true);
+      await onLogin(email, password, rememberMe);
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleCompleteCompanySetup = (e: React.FormEvent) => {
+  const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedTerm = CATEGORY_MAP[category];
-    onSaveCompanySetup({
-      ...company,
-      name: companyName.trim(),
-      phone: phone.trim(),
-      email: companyEmail.trim() || email.trim(),
-      website: website.trim(),
-      category,
-      tagline: selectedTerm.tagline,
-      customSingular:
-        category === 'Other' ? customSingular.trim() || 'Client' : undefined,
-      customPlural:
-        category === 'Other'
-          ? `${customSingular.trim() || 'Client'}s`
-          : undefined,
-      logoDataUrl,
-    });
-    setMode('app');
+    if (!agreeTerms) {
+      setAuthError('Please agree to the Terms & Conditions to continue.');
+      return;
+    }
+    if (password.length < 6) {
+      setAuthError('Password must be at least 6 characters long.');
+      return;
+    }
+    setAuthError(null);
+    setIsSubmitting(true);
+    try {
+      if (!companyEmail && email) {
+        setCompanyEmail(email);
+      }
+      await onSignUp(fullName, email, password);
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setIsSubmitting(true);
+    try {
+      await sendPasswordReset(email);
+      setResetSent(true);
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCompleteCompanySetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const selectedTerm = CATEGORY_MAP[category];
+      await onSaveCompanySetup({
+        ...company,
+        name: companyName.trim(),
+        phone: phone.trim(),
+        email: companyEmail.trim() || email.trim() || company.email,
+        website: website.trim(),
+        category,
+        tagline: selectedTerm.tagline,
+        customSingular:
+          category === 'Other' ? customSingular.trim() || 'Client' : undefined,
+        customPlural:
+          category === 'Other'
+            ? `${customSingular.trim() || 'Client'}s`
+            : undefined,
+        logoDataUrl,
+      });
+      setMode('app');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -164,7 +214,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
               </p>
 
               {authError && (
-                <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700">
                   {authError}
                 </div>
               )}
@@ -228,6 +278,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      setAuthError(null);
                       setResetSent(false);
                       setMode('forgot-password');
                     }}
@@ -239,9 +290,17 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors shadow-xs"
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-sm rounded-lg transition-colors shadow-xs flex items-center justify-center gap-2"
                 >
-                  Login
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Signing In...</span>
+                    </>
+                  ) : (
+                    <span>Login</span>
+                  )}
                 </button>
               </form>
 
@@ -249,7 +308,10 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                 Don&apos;t have an account?{' '}
                 <button
                   type="button"
-                  onClick={() => setMode('signup')}
+                  onClick={() => {
+                    setAuthError(null);
+                    setMode('signup');
+                  }}
                   className="text-blue-600 font-semibold hover:underline"
                 >
                   Sign Up
@@ -364,9 +426,10 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                   <input
                     type={showPassword ? 'text' : 'password'}
                     required
+                    minLength={6}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Create a strong password"
+                    placeholder="Create a strong password (min 6 chars)"
                     className="w-full pl-10 pr-10 py-2.5 text-sm rounded-lg border border-slate-200 focus:border-blue-600 focus:outline-none"
                   />
                   <button
@@ -400,9 +463,17 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors"
+                disabled={isSubmitting}
+                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
               >
-                Sign Up
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Creating Account...</span>
+                  </>
+                ) : (
+                  <span>Sign Up</span>
+                )}
               </button>
             </form>
 
@@ -410,7 +481,10 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
               Already have an account?{' '}
               <button
                 type="button"
-                onClick={() => setMode('login')}
+                onClick={() => {
+                  setAuthError(null);
+                  setMode('login');
+                }}
                 className="text-blue-600 font-semibold hover:underline"
               >
                 Login
@@ -442,6 +516,12 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
               Enter your registered email address and we will send a recovery link.
             </p>
 
+            {authError && (
+              <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700">
+                {authError}
+              </div>
+            )}
+
             {resetSent ? (
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 text-center">
@@ -450,20 +530,17 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setMode('login')}
+                  onClick={() => {
+                    setAuthError(null);
+                    setMode('login');
+                  }}
                   className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors"
                 >
                   Back to Login
                 </button>
               </div>
             ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setResetSent(true);
-                }}
-                className="space-y-4"
-              >
+              <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1.5">
                     Email Address
@@ -479,13 +556,24 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                 </div>
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors"
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
                 >
-                  Send Recovery Link
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <span>Send Recovery Link</span>
+                  )}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMode('login')}
+                  onClick={() => {
+                    setAuthError(null);
+                    setMode('login');
+                  }}
                   className="w-full py-2 px-4 text-xs font-medium text-slate-600 hover:text-slate-900"
                 >
                   Cancel and return to Login
@@ -568,7 +656,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                 >
                   <span
                     className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                      setupStep === 3
+                      setupStep >= 3
                         ? 'bg-blue-600 text-white'
                         : 'bg-slate-200 text-slate-600'
                     }`}
@@ -718,10 +806,20 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                 <div className="pt-3 flex items-center justify-end gap-3">
                   <button
                     type="submit"
-                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+                    disabled={isSubmitting}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
                   >
-                    <Check className="w-4 h-4" />
-                    <span>Next</span>
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Next</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </form>

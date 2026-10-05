@@ -25,7 +25,10 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return request.auth != null && request.auth.token.email_verified == true;
+      return request.auth != null && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.firebase.sign_in_provider == 'password'
+      );
     }
 
     function isWorkspaceOwner(userId) {
@@ -39,7 +42,7 @@ service cloud.firestore {
           'ownerId', 'name', 'tagline', 'phone', 'email', 'website', 'category', 'currency', 'createdAt', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'ownerId', 'name', 'tagline', 'phone', 'email', 'website', 'category', 'currency', 'createdAt', 'updatedAt'
+          'ownerId', 'name', 'tagline', 'phone', 'email', 'website', 'category', 'currency', 'settings', 'createdAt', 'updatedAt'
         ]) &&
         data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
         data.ownerId == request.auth.uid &&
@@ -56,6 +59,7 @@ service cloud.firestore {
           'Other'
         ] &&
         data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
+        (!('settings' in data) || data.settings is map) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -159,7 +163,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (
           incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'tagline', 'phone', 'email', 'website', 'category', 'currency', 'updatedAt'
+            'name', 'tagline', 'phone', 'email', 'website', 'category', 'currency', 'settings', 'updatedAt'
           ])
         );
 

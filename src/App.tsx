@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   CheckSquare,
@@ -41,8 +41,10 @@ import {
   deletePartnerFromFirestore,
   loadOrBootstrapWorkspace,
   onAuthStateChanged,
-  signInWithGooglePopup,
+  signInWithEmailPassword,
   signOutFirebaseUser,
+  signUpWithEmailPassword,
+  subscribeToWorkspaceRealtime,
   syncClientToFirestore,
   syncPartnerToFirestore,
   syncWorkspaceProfileToFirestore,
@@ -186,6 +188,7 @@ export default function App() {
   const [authScreenMode, setAuthScreenMode] =
     useState<AuthScreenMode>('login');
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const isSigningUpRef = useRef(false);
   const [activeTab, setActiveTab] = useState<ActiveNavTab>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -328,29 +331,74 @@ export default function App() {
     img.src = DEFAULT_BRAND_LOGO_PATH;
   }, []);
 
+  // Listen to Firebase Auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (user) {
-        try {
-          const loaded = await loadOrBootstrapWorkspace(
-            user,
-            company,
-            clients,
-            expenses,
-            partners
-          );
-          setCompany(loaded.company);
-          setClients(loaded.clients);
-          setExpenses(loaded.expenses);
-          setPartners(loaded.partners);
-        } catch (err) {
-          console.error('Error syncing workspace from Firestore:', err);
+        if (!isSigningUpRef.current) {
+          setAuthScreenMode((prev) => (prev === 'login' ? 'app' : prev));
         }
       }
     });
     return () => unsubscribe();
   }, []);
+
+  // Real-time Firestore synchronization via onSnapshot whenever user is authenticated
+  useEffect(() => {
+    if (!firebaseUser) return;
+
+    const unsubscribeRealtime = subscribeToWorkspaceRealtime(
+      firebaseUser,
+      {
+        ...INITIAL_COMPANY_PROFILE,
+        logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+      },
+      {
+        onCompanyChange: (remoteCompany) => {
+          setCompany(remoteCompany);
+          setInvoiceDoc((prev) => ({
+            ...prev,
+            headerTitle:
+              remoteCompany.invoiceHeaderTitle || prev.headerTitle || 'INVOICE',
+            headerNote: remoteCompany.invoiceHeaderNote ?? prev.headerNote,
+            invoiceDate: remoteCompany.defaultIssueDate || prev.invoiceDate,
+            dueDate: remoteCompany.defaultDueDate || prev.dueDate,
+            companyName: remoteCompany.name || prev.companyName,
+            companyTagline: remoteCompany.tagline,
+            companyPhone: remoteCompany.phone,
+            companyEmail: remoteCompany.email,
+            companyWebsite: remoteCompany.website,
+            footerThankYou:
+              remoteCompany.invoiceFooterThankYou || prev.footerThankYou,
+            footerTerms: remoteCompany.invoiceFooterTerms ?? prev.footerTerms,
+            qrLabel: remoteCompany.qrLabel || prev.qrLabel,
+            showQrCode: remoteCompany.showQrCode !== false,
+            logoDataUrl: resolveActiveLogoUrl(remoteCompany.logoDataUrl),
+            qrCodeDataUrl: remoteCompany.qrCodeDataUrl,
+            theme: remoteCompany.invoiceTheme || prev.theme,
+            softwareLabel:
+              remoteCompany.defaultSoftwareLabel || prev.softwareLabel,
+            chatbotLabel:
+              remoteCompany.defaultChatbotLabel || prev.chatbotLabel,
+          }));
+        },
+        onClientsChange: (remoteClients) => {
+          setClients(remoteClients);
+        },
+        onExpensesChange: (remoteExpenses) => {
+          setExpenses(remoteExpenses);
+        },
+        onPartnersChange: (remotePartners) => {
+          setPartners(remotePartners);
+        },
+      }
+    );
+
+    return () => {
+      unsubscribeRealtime();
+    };
+  }, [firebaseUser]);
 
   const term = useMemo(() => getTerminology(company), [company]);
 
@@ -412,9 +460,10 @@ export default function App() {
       softwareLabel: updated.defaultSoftwareLabel || prev.softwareLabel,
       chatbotLabel: updated.defaultChatbotLabel || prev.chatbotLabel,
     }));
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await syncWorkspaceProfileToFirestore(firebaseUser.uid, updated);
+        await syncWorkspaceProfileToFirestore(activeUser.uid, updated);
       } catch (err) {
         console.error(err);
       }
@@ -454,9 +503,10 @@ export default function App() {
     });
     setEditorClientId(client.id);
     setInvoiceDoc(buildEditableInvoiceFromClient(company, client, selectedMonth));
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await syncClientToFirestore(firebaseUser.uid, client, isNew);
+        await syncClientToFirestore(activeUser.uid, client, isNew);
       } catch (err) {
         console.error(err);
       }
@@ -542,9 +592,10 @@ export default function App() {
       );
     }
 
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await syncClientToFirestore(firebaseUser.uid, updatedClient, false);
+        await syncClientToFirestore(activeUser.uid, updatedClient, false);
       } catch (err) {
         console.error(err);
       }
@@ -609,9 +660,10 @@ export default function App() {
     );
     setActiveTab('invoice-editor');
 
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await syncClientToFirestore(firebaseUser.uid, updatedClient, false);
+        await syncClientToFirestore(activeUser.uid, updatedClient, false);
       } catch (err) {
         console.error(err);
       }
@@ -623,9 +675,10 @@ export default function App() {
     if (!target) return;
     const updated: ClientEntity = { ...target, enabled: !target.enabled };
     setClients((prev) => prev.map((c) => (c.id === clientId ? updated : c)));
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await syncClientToFirestore(firebaseUser.uid, updated, false);
+        await syncClientToFirestore(activeUser.uid, updated, false);
       } catch (err) {
         console.error(err);
       }
@@ -642,9 +695,10 @@ export default function App() {
         buildEditableInvoiceFromClient(company, nextClient, selectedMonth)
       );
     }
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await deleteClientFromFirestore(firebaseUser.uid, clientId);
+        await deleteClientFromFirestore(activeUser.uid, clientId);
       } catch (err) {
         console.error(err);
       }
@@ -653,9 +707,10 @@ export default function App() {
 
   const handleAddExpense = async (expense: ExpenseItem) => {
     setExpenses((prev) => [expense, ...prev]);
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await createExpenseInFirestore(firebaseUser.uid, expense);
+        await createExpenseInFirestore(activeUser.uid, expense);
       } catch (err) {
         console.error(err);
       }
@@ -664,9 +719,10 @@ export default function App() {
 
   const handleDeleteExpense = async (expenseId: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== expenseId));
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await deleteExpenseFromFirestore(firebaseUser.uid, expenseId);
+        await deleteExpenseFromFirestore(activeUser.uid, expenseId);
       } catch (err) {
         console.error(err);
       }
@@ -675,9 +731,10 @@ export default function App() {
 
   const handleAddPartner = async (partner: PartnerItem) => {
     setPartners((prev) => [...prev, partner]);
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await syncPartnerToFirestore(firebaseUser.uid, partner, true);
+        await syncPartnerToFirestore(activeUser.uid, partner, true);
       } catch (err) {
         console.error(err);
       }
@@ -711,6 +768,7 @@ export default function App() {
       prev.map((p) => (p.id === partnerId ? updatedPartner : p))
     );
 
+    const activeUser = firebaseUser || auth.currentUser;
     if (nextPaid) {
       const partnerExpense: ExpenseItem = {
         id: autoExpenseId,
@@ -726,27 +784,27 @@ export default function App() {
         partnerExpense,
         ...prev.filter((e) => e.id !== autoExpenseId),
       ]);
-      if (firebaseUser) {
+      if (activeUser) {
         try {
-          await createExpenseInFirestore(firebaseUser.uid, partnerExpense);
+          await createExpenseInFirestore(activeUser.uid, partnerExpense);
         } catch (err) {
           console.error(err);
         }
       }
     } else {
       setExpenses((prev) => prev.filter((e) => e.id !== autoExpenseId));
-      if (firebaseUser) {
+      if (activeUser) {
         try {
-          await deleteExpenseFromFirestore(firebaseUser.uid, autoExpenseId);
+          await deleteExpenseFromFirestore(activeUser.uid, autoExpenseId);
         } catch (err) {
           console.error(err);
         }
       }
     }
 
-    if (firebaseUser) {
+    if (activeUser) {
       try {
-        await syncPartnerToFirestore(firebaseUser.uid, updatedPartner, false);
+        await syncPartnerToFirestore(activeUser.uid, updatedPartner, false);
       } catch (err) {
         console.error(err);
       }
@@ -755,9 +813,10 @@ export default function App() {
 
   const handleDeletePartner = async (partnerId: string) => {
     setPartners((prev) => prev.filter((p) => p.id !== partnerId));
-    if (firebaseUser) {
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
       try {
-        await deletePartnerFromFirestore(firebaseUser.uid, partnerId);
+        await deletePartnerFromFirestore(activeUser.uid, partnerId);
       } catch (err) {
         console.error(err);
       }
@@ -820,25 +879,54 @@ export default function App() {
         mode={authScreenMode}
         setMode={setAuthScreenMode}
         company={company}
-        onSaveCompanySetup={handleUpdateCompany}
-        onGoogleLogin={async () => {
-          await signInWithGooglePopup();
+        onSaveCompanySetup={async (updated) => {
+          isSigningUpRef.current = false;
+          await handleUpdateCompany(updated);
+        }}
+        onLogin={async (email, password, rememberMe) => {
+          isSigningUpRef.current = false;
+          const user = await signInWithEmailPassword(
+            email,
+            password,
+            rememberMe
+          );
+          setFirebaseUser(user);
+          const loaded = await loadOrBootstrapWorkspace(
+            user,
+            {
+              ...INITIAL_COMPANY_PROFILE,
+              email: email.trim(),
+              logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+            },
+            INITIAL_CLIENTS,
+            INITIAL_EXPENSES,
+            INITIAL_PARTNERS
+          );
+          setCompany(loaded.company);
+          setClients(loaded.clients);
+          setExpenses(loaded.expenses);
+          setPartners(loaded.partners);
           setAuthScreenMode('app');
         }}
-        onEmailAuthComplete={(email, isSignUp) => {
-          if (isSignUp) {
-            setCompany((prev) => ({
-              ...prev,
-              email: prev.email || email,
-            }));
-            setAuthScreenMode('company-setup');
-          } else {
-            setCompany((prev) => ({
-              ...prev,
-              email: prev.email || email,
-            }));
-            setAuthScreenMode('app');
-          }
+        onSignUp={async (fullName, email, password) => {
+          isSigningUpRef.current = true;
+          const initialProfile: CompanyProfile = {
+            ...INITIAL_COMPANY_PROFILE,
+            email: email.trim(),
+            logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+          };
+          const user = await signUpWithEmailPassword(
+            fullName,
+            email,
+            password,
+            initialProfile
+          );
+          setFirebaseUser(user);
+          setCompany(initialProfile);
+          setClients([]);
+          setExpenses([]);
+          setPartners([]);
+          setAuthScreenMode('company-setup');
         }}
       />
     );
@@ -945,10 +1033,26 @@ export default function App() {
         <div className="p-3 border-t border-slate-800 space-y-1.5 shrink-0">
           <button
             type="button"
-            onClick={() => {
-              if (firebaseUser) {
-                signOutFirebaseUser();
+            onClick={async () => {
+              isSigningUpRef.current = false;
+              try {
+                await signOutFirebaseUser();
+              } catch {
+                // ignore sign out error
               }
+              try {
+                localStorage.removeItem(STORAGE_KEY);
+              } catch {
+                // ignore storage clear error
+              }
+              setFirebaseUser(null);
+              setCompany({
+                ...INITIAL_COMPANY_PROFILE,
+                logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+              });
+              setClients(INITIAL_CLIENTS);
+              setExpenses(INITIAL_EXPENSES);
+              setPartners(INITIAL_PARTNERS);
               setAuthScreenMode('login');
             }}
             title="Log Out"
