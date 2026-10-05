@@ -26,7 +26,7 @@ import {
   PartnerItem,
   SoftwareCategory,
 } from '../types';
-import { DEFAULT_BRAND_LOGO_PATH } from '../utils/usePWAInstall';
+import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
 import { PWAInstallButton } from './PWAInstallModal';
 import { RevenueExpenseChart } from './RevenueExpenseChart';
 
@@ -1136,7 +1136,7 @@ export const FinanceAndSettingsViews: React.FC<
               </div>
               <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl p-5 flex flex-col items-center justify-center gap-2.5 cursor-pointer bg-slate-50/60 min-h-[120px]">
                 <img
-                  src={compLogo || DEFAULT_BRAND_LOGO_PATH}
+                  src={resolveActiveLogoUrl(compLogo)}
                   alt="Company Logo"
                   referrerPolicy="no-referrer"
                   className="h-14 w-auto object-contain rounded bg-white p-1 border border-slate-200"

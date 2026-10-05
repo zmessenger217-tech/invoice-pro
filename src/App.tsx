@@ -67,7 +67,11 @@ import {
   prepareWhatsAppPdfShare,
   printInvoiceDocument,
 } from './utils/invoicePdf';
-import { DEFAULT_BRAND_LOGO_PATH } from './utils/usePWAInstall';
+import {
+  DEFAULT_BRAND_LOGO_DATA_URL,
+  DEFAULT_BRAND_LOGO_PATH,
+  resolveActiveLogoUrl,
+} from './utils/usePWAInstall';
 
 const STORAGE_KEY = 'invoicepro_workspace_clean_v2';
 
@@ -130,7 +134,7 @@ function buildEditableInvoiceFromClient(
       footerTerms,
       qrLabel,
       showQrCode,
-      logoDataUrl: company.logoDataUrl,
+      logoDataUrl: resolveActiveLogoUrl(company.logoDataUrl),
       qrCodeDataUrl: company.qrCodeDataUrl,
       theme,
       status: 'Unpaid',
@@ -173,7 +177,7 @@ function buildEditableInvoiceFromClient(
     footerTerms,
     qrLabel,
     showQrCode,
-    logoDataUrl: company.logoDataUrl,
+    logoDataUrl: resolveActiveLogoUrl(company.logoDataUrl),
     qrCodeDataUrl: company.qrCodeDataUrl,
     theme,
     status: rec.status,
@@ -206,12 +210,24 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.company) return parsed.company;
+        if (parsed.company) {
+          return {
+            ...parsed.company,
+            logoDataUrl:
+              parsed.company.logoDataUrl &&
+              !parsed.company.logoDataUrl.startsWith('/src/')
+                ? parsed.company.logoDataUrl
+                : DEFAULT_BRAND_LOGO_DATA_URL,
+          };
+        }
       }
     } catch {
       // ignore
     }
-    return INITIAL_COMPANY_PROFILE;
+    return {
+      ...INITIAL_COMPANY_PROFILE,
+      logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+    };
   });
 
   const [clients, setClients] = useState<ClientEntity[]>(() => {
@@ -287,7 +303,13 @@ export default function App() {
 
   // Ensure default brand logo is converted to a base64 Data URL so jsPDF and Print always render it
   useEffect(() => {
-    if (company.logoDataUrl) return;
+    if (
+      company.logoDataUrl &&
+      company.logoDataUrl.startsWith('data:image/') &&
+      company.logoDataUrl !== DEFAULT_BRAND_LOGO_DATA_URL
+    ) {
+      return;
+    }
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -299,19 +321,15 @@ export default function App() {
         if (ctx) {
           ctx.drawImage(img, 0, 0, 160, 160);
           const dataUrl = canvas.toDataURL('image/png');
-          setCompany((prev) =>
-            prev.logoDataUrl ? prev : { ...prev, logoDataUrl: dataUrl }
-          );
-          setInvoiceDoc((prev) =>
-            prev.logoDataUrl ? prev : { ...prev, logoDataUrl: dataUrl }
-          );
+          setCompany((prev) => ({ ...prev, logoDataUrl: dataUrl }));
+          setInvoiceDoc((prev) => ({ ...prev, logoDataUrl: dataUrl }));
         }
       } catch {
         // ignore canvas security fallback
       }
     };
     img.src = DEFAULT_BRAND_LOGO_PATH;
-  }, [company.logoDataUrl]);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -874,7 +892,7 @@ export default function App() {
             className="flex items-center gap-2.5 text-left"
           >
             <img
-              src={company.logoDataUrl || DEFAULT_BRAND_LOGO_PATH}
+              src={resolveActiveLogoUrl(company.logoDataUrl)}
               alt={company.name || 'InvoicePro Logo'}
               referrerPolicy="no-referrer"
               className="w-8 h-8 rounded-lg object-contain bg-white p-0.5 shrink-0"

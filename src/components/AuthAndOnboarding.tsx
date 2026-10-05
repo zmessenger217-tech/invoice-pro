@@ -17,7 +17,7 @@ import {
   CompanyProfile,
   SoftwareCategory,
 } from '../types';
-import { DEFAULT_BRAND_LOGO_PATH } from '../utils/usePWAInstall';
+import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
 
 interface AuthAndOnboardingProps {
   mode: AuthScreenMode;
@@ -150,7 +150,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
             <div className="md:col-span-7 p-8 md:p-10 flex flex-col justify-center">
               <div className="flex items-center gap-2.5 mb-2">
                 <img
-                  src={company.logoDataUrl || DEFAULT_BRAND_LOGO_PATH}
+                  src={resolveActiveLogoUrl(company.logoDataUrl)}
                   alt="InvoicePro Logo"
                   referrerPolicy="no-referrer"
                   className="w-9 h-9 rounded-xl object-contain bg-slate-900 p-0.5 border border-slate-200 shadow-xs"
@@ -298,7 +298,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
           <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
             <div className="flex items-center justify-center gap-2.5 mb-3">
               <img
-                src={company.logoDataUrl || DEFAULT_BRAND_LOGO_PATH}
+                src={resolveActiveLogoUrl(company.logoDataUrl)}
                 alt="InvoicePro Logo"
                 referrerPolicy="no-referrer"
                 className="w-9 h-9 rounded-xl object-contain bg-slate-900 p-0.5 border border-slate-200 shadow-xs"
@@ -426,7 +426,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
           <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
             <div className="flex items-center justify-center gap-2.5 mb-4">
               <img
-                src={company.logoDataUrl || DEFAULT_BRAND_LOGO_PATH}
+                src={resolveActiveLogoUrl(company.logoDataUrl)}
                 alt="InvoicePro Logo"
                 referrerPolicy="no-referrer"
                 className="w-9 h-9 rounded-xl object-contain bg-slate-900 p-0.5 border border-slate-200 shadow-xs"
@@ -504,7 +504,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
             <div className="md:col-span-4 bg-slate-50 p-6 md:p-8 border-b md:border-b-0 md:border-r border-slate-200">
               <div className="flex items-center gap-2.5 mb-8">
                 <img
-                  src={logoDataUrl || DEFAULT_BRAND_LOGO_PATH}
+                  src={resolveActiveLogoUrl(logoDataUrl)}
                   alt="InvoicePro Logo"
                   referrerPolicy="no-referrer"
                   className="w-8 h-8 rounded-lg object-contain bg-slate-900 p-0.5 border border-slate-200"
@@ -662,7 +662,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                   <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl p-5 flex flex-col items-center justify-center cursor-pointer transition-colors bg-slate-50/60">
                     <div className="flex flex-col items-center gap-2">
                       <img
-                        src={logoDataUrl || DEFAULT_BRAND_LOGO_PATH}
+                        src={resolveActiveLogoUrl(logoDataUrl)}
                         alt="Company Logo Preview"
                         referrerPolicy="no-referrer"
                         className="h-12 w-auto object-contain rounded bg-white p-1 border border-slate-200"

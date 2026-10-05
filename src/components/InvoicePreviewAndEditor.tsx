@@ -34,7 +34,7 @@ import {
   prepareWhatsAppPdfShare,
   printInvoiceDocument,
 } from '../utils/invoicePdf';
-import { DEFAULT_BRAND_LOGO_PATH } from '../utils/usePWAInstall';
+import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
 
 interface InvoicePreviewAndEditorProps {
   company: CompanyProfile;
@@ -737,7 +737,7 @@ export const InvoicePreviewAndEditor: React.FC<
                   className="cursor-pointer group relative shrink-0"
                 >
                   <img
-                    src={invoiceDoc.logoDataUrl || DEFAULT_BRAND_LOGO_PATH}
+                    src={resolveActiveLogoUrl(invoiceDoc.logoDataUrl)}
                     alt={invoiceDoc.companyName || 'Company Logo'}
                     referrerPolicy="no-referrer"
                     className="w-16 h-16 rounded-2xl object-contain bg-white p-1.5 shadow-md border border-white/20 group-hover:opacity-90 transition-opacity"

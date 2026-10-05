@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Check, Download, Upload } from 'lucide-react';
 import { CompanyProfile } from '../types';
 import {
-  DEFAULT_BRAND_LOGO_PATH,
+  DEFAULT_BRAND_LOGO_DATA_URL,
+  resolveActiveLogoUrl,
   useOnlineStatus,
   usePWAInstall,
 } from '../utils/usePWAInstall';
@@ -40,7 +41,9 @@ function triggerDirectWebAppDownload(
   const appUrl = window.location.origin + window.location.pathname;
   const resolvedLogo = activeLogo.startsWith('data:')
     ? activeLogo
-    : window.location.origin + activeLogo;
+    : activeLogo.startsWith('http')
+    ? activeLogo
+    : DEFAULT_BRAND_LOGO_DATA_URL;
 
   const standaloneHtml = `<!doctype html>
 <html lang="en">
@@ -146,7 +149,7 @@ export const PWAInstallButton: React.FC<PWAInstallWidgetProps> = ({
   variant = 'topbar',
   collapsed = false,
 }) => {
-  const activeLogo = company.logoDataUrl || DEFAULT_BRAND_LOGO_PATH;
+  const activeLogo = resolveActiveLogoUrl(company.logoDataUrl);
   const { isInstallable, isInstalled, install } = usePWAInstall(
     company.logoDataUrl
   );

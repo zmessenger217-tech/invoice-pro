@@ -1,7 +1,10 @@
 import { jsPDF } from 'jspdf';
 import { formatCurrency } from '../data/initialData';
 import { InvoiceEditableDocument, InvoiceTheme } from '../types';
-import { DEFAULT_BRAND_LOGO_PATH } from './usePWAInstall';
+import {
+  DEFAULT_BRAND_LOGO_DATA_URL,
+  resolveActiveLogoUrl,
+} from './usePWAInstall';
 
 export function getClientPdfFilename(docData: InvoiceEditableDocument): string {
   const safeClientName = (docData.clientName || 'Client')
@@ -82,11 +85,15 @@ export function buildInvoicePdfInstance(
 
   // Brand Logo or Monogram Box
   let textStartX = 18;
-  if (docData.logoDataUrl && docData.logoDataUrl.startsWith('data:image/')) {
+  const pdfLogoUrl =
+    docData.logoDataUrl && docData.logoDataUrl.startsWith('data:image/')
+      ? docData.logoDataUrl
+      : DEFAULT_BRAND_LOGO_DATA_URL;
+  if (pdfLogoUrl && pdfLogoUrl.startsWith('data:image/')) {
     try {
       pdf.setFillColor(255, 255, 255);
       pdf.roundedRect(18, 10, 20, 20, 2.5, 2.5, 'F');
-      pdf.addImage(docData.logoDataUrl, 19.5, 11.5, 17, 17);
+      pdf.addImage(pdfLogoUrl, 19.5, 11.5, 17, 17);
       textStartX = 42;
     } catch {
       pdf.setFillColor(...palette.accent);
@@ -538,7 +545,7 @@ export function printInvoiceDocument(
     ? docData.invoiceNumber
     : `#${docData.invoiceNumber}`;
 
-  const activeLogoSrc = docData.logoDataUrl || DEFAULT_BRAND_LOGO_PATH;
+  const activeLogoSrc = resolveActiveLogoUrl(docData.logoDataUrl);
   const contactParts = [
     docData.companyWebsite,
     docData.companyEmail,
