@@ -245,6 +245,20 @@ export function getOrComputeMonthlyRecord(
       totalAmount,
       remainingDues,
       status,
+      // Carry forward partner fields from client if not explicitly set in record
+      partnerId: existing.partnerId ?? client.partnerId,
+      partnerName: existing.partnerName ?? client.partnerName,
+      partnerPaymentEnabled:
+        existing.partnerPaymentEnabled ?? client.partnerPaymentEnabled,
+      partnerSoftwareCharges:
+        existing.partnerSoftwareCharges ?? client.partnerSoftwareCharges,
+      partnerWhatsappCharges:
+        existing.partnerWhatsappCharges ?? client.partnerWhatsappCharges,
+      partnerChatbotCharges:
+        existing.partnerChatbotCharges ?? client.partnerChatbotCharges,
+      partnerTotalPayment:
+        existing.partnerTotalPayment ?? client.partnerTotalPayment,
+      partnerNote: existing.partnerNote ?? client.partnerNote,
       // Always ensure invoiceDate and dueDate align with the selected month
       invoiceDate: getIssueDateForMonth(month, existing.invoiceDate),
       dueDate: getDueDateForMonth(month, existing.dueDate),
@@ -285,6 +299,14 @@ export function getOrComputeMonthlyRecord(
     invoiceDate: getIssueDateForMonth(month),
     dueDate: getDueDateForMonth(month),
     payments: [],
+    partnerId: client.partnerId,
+    partnerName: client.partnerName,
+    partnerPaymentEnabled: client.partnerPaymentEnabled,
+    partnerSoftwareCharges: client.partnerSoftwareCharges,
+    partnerWhatsappCharges: client.partnerWhatsappCharges,
+    partnerChatbotCharges: client.partnerChatbotCharges,
+    partnerTotalPayment: client.partnerTotalPayment,
+    partnerNote: client.partnerNote,
   };
 }
 

@@ -2,19 +2,23 @@ import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   Building2,
+  Check,
   CheckCircle2,
   Download,
   Edit3,
   Eye,
   FileText,
   History,
+  Layers,
   MessageCircle,
   Plus,
   Printer,
   Search,
+  Sparkles,
   Trash2,
   TrendingDown,
   TrendingUp,
+  Users,
   X,
 } from 'lucide-react';
 import {
@@ -31,6 +35,7 @@ import {
   ActiveNavTab,
   ClientEntity,
   CompanyProfile,
+  PartnerItem,
   PaymentTransaction,
 } from '../types';
 import { RevenueExpenseChart } from './RevenueExpenseChart';
@@ -41,6 +46,7 @@ interface ClientBillingViewsProps {
   company: CompanyProfile;
   term: CategoryTerminology;
   clients: ClientEntity[];
+  partners?: PartnerItem[];
   selectedMonth: string;
   setSelectedMonth: (m: string) => void;
   monthlyRevenue: number;
@@ -71,6 +77,9 @@ interface ClientBillingViewsProps {
   onQuickPrintInvoice: (clientId: string, month: string) => void;
   onQuickWhatsAppInvoice: (clientId: string, month: string) => void;
   onDeleteInvoice?: (clientId: string, month: string) => void;
+  onGenerateAllMonthlyInvoices?: (
+    month: string
+  ) => Promise<{ count: number; totalAmount: number } | void> | void;
 }
 
 export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
@@ -79,6 +88,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   company,
   term,
   clients,
+  partners = [],
   selectedMonth,
   setSelectedMonth,
   monthlyRevenue,
@@ -92,9 +102,17 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   onQuickPrintInvoice,
   onQuickWhatsAppInvoice,
   onDeleteInvoice,
+  onGenerateAllMonthlyInvoices,
 }) => {
   const currency = company.currency || 'Rs.';
   const activeClients = clients.filter((c) => c.enabled);
+
+  // Batch Generation State
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchGenerating, setBatchGenerating] = useState(false);
+  const [batchSuccessBanner, setBatchSuccessBanner] = useState<string | null>(
+    null
+  );
 
   // Add / Edit Client Form State — starts clean when adding a new school
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
@@ -108,6 +126,17 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   const [whatsappMessages, setWhatsappMessages] = useState<string>('');
   const [chatbotEnabled, setChatbotEnabled] = useState(true);
   const [chatbotCharges, setChatbotCharges] = useState<string>('');
+  // Partner Payment State
+  const [partnerPaymentEnabled, setPartnerPaymentEnabled] = useState(false);
+  const [partnerId, setPartnerId] = useState<string>('');
+  const [partnerSoftwareCharges, setPartnerSoftwareCharges] =
+    useState<string>('');
+  const [partnerWhatsappCharges, setPartnerWhatsappCharges] =
+    useState<string>('');
+  const [partnerChatbotCharges, setPartnerChatbotCharges] =
+    useState<string>('');
+  const [partnerNote, setPartnerNote] = useState<string>('');
+
   const [clientSavedBanner, setClientSavedBanner] = useState<string | null>(
     null
   );
@@ -172,6 +201,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   }, [invGeneratorClientId, clients, selectedMonth]);
 
   const loadClientIntoForm = (c: ClientEntity) => {
+    const monthRec = c.monthlyRecords[selectedMonth];
     setEditingClientId(c.id);
     setClientName(c.name);
     setClientAddress(c.address);
@@ -183,6 +213,33 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     setWhatsappMessages(String(c.whatsappMessages));
     setChatbotEnabled(c.chatbotEnabled);
     setChatbotCharges(String(c.chatbotCharges));
+    // Load partner payment settings
+    setPartnerPaymentEnabled(
+      monthRec?.partnerPaymentEnabled ?? c.partnerPaymentEnabled ?? false
+    );
+    setPartnerId(monthRec?.partnerId ?? c.partnerId ?? '');
+    setPartnerSoftwareCharges(
+      monthRec?.partnerSoftwareCharges !== undefined
+        ? String(monthRec.partnerSoftwareCharges)
+        : c.partnerSoftwareCharges !== undefined
+        ? String(c.partnerSoftwareCharges)
+        : ''
+    );
+    setPartnerWhatsappCharges(
+      monthRec?.partnerWhatsappCharges !== undefined
+        ? String(monthRec.partnerWhatsappCharges)
+        : c.partnerWhatsappCharges !== undefined
+        ? String(c.partnerWhatsappCharges)
+        : ''
+    );
+    setPartnerChatbotCharges(
+      monthRec?.partnerChatbotCharges !== undefined
+        ? String(monthRec.partnerChatbotCharges)
+        : c.partnerChatbotCharges !== undefined
+        ? String(c.partnerChatbotCharges)
+        : ''
+    );
+    setPartnerNote(monthRec?.partnerNote ?? c.partnerNote ?? '');
     setActiveTab('add-client');
   };
 
@@ -198,6 +255,12 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     setWhatsappMessages('');
     setChatbotEnabled(true);
     setChatbotCharges('');
+    setPartnerPaymentEnabled(false);
+    setPartnerId('');
+    setPartnerSoftwareCharges('');
+    setPartnerWhatsappCharges('');
+    setPartnerChatbotCharges('');
+    setPartnerNote('');
   };
 
   const openPaymentModalForClient = (client: ClientEntity) => {
@@ -227,6 +290,19 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   const numChatbot = chatbotEnabled ? Number(chatbotCharges) || 0 : 0;
   const calculatedClientTotal =
     numSoftware + calculatedWhatsappTotal + numChatbot;
+
+  const numPartnerSoftware = partnerPaymentEnabled
+    ? Number(partnerSoftwareCharges) || 0
+    : 0;
+  const numPartnerWhatsapp = partnerPaymentEnabled
+    ? Number(partnerWhatsappCharges) || 0
+    : 0;
+  const numPartnerChatbot = partnerPaymentEnabled
+    ? Number(partnerChatbotCharges) || 0
+    : 0;
+  const calculatedPartnerTotal =
+    numPartnerSoftware + numPartnerWhatsapp + numPartnerChatbot;
+  const selectedPartnerObj = partners.find((p) => p.id === partnerId);
 
   const handleClientFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -269,6 +345,17 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       ),
       dueDate: getDueDateForMonth(selectedMonth, existingMonthRec?.dueDate),
       payments: existingMonthRec?.payments || [],
+      partnerId: partnerPaymentEnabled && partnerId ? partnerId : undefined,
+      partnerName:
+        partnerPaymentEnabled && selectedPartnerObj
+          ? selectedPartnerObj.name
+          : undefined,
+      partnerPaymentEnabled: partnerPaymentEnabled && Boolean(partnerId),
+      partnerSoftwareCharges: numPartnerSoftware,
+      partnerWhatsappCharges: numPartnerWhatsapp,
+      partnerChatbotCharges: numPartnerChatbot,
+      partnerTotalPayment: calculatedPartnerTotal,
+      partnerNote: partnerNote.trim() || undefined,
     };
 
     const newClient: ClientEntity = {
@@ -286,6 +373,17 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       whatsappCharges: calculatedWhatsappTotal,
       chatbotEnabled,
       chatbotCharges: numChatbot,
+      partnerId: partnerPaymentEnabled && partnerId ? partnerId : undefined,
+      partnerName:
+        partnerPaymentEnabled && selectedPartnerObj
+          ? selectedPartnerObj.name
+          : undefined,
+      partnerPaymentEnabled: partnerPaymentEnabled && Boolean(partnerId),
+      partnerSoftwareCharges: numPartnerSoftware,
+      partnerWhatsappCharges: numPartnerWhatsapp,
+      partnerChatbotCharges: numPartnerChatbot,
+      partnerTotalPayment: calculatedPartnerTotal,
+      partnerNote: partnerNote.trim() || undefined,
       monthlyRecords: {
         ...(existingClient?.monthlyRecords || {}),
         [selectedMonth]: updatedRecord,
@@ -692,6 +790,158 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   />
                 </div>
               </div>
+
+              {/* 4. Partner Payment & Service Commission Breakdown */}
+              <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/30 space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2.5 text-xs font-semibold text-indigo-950 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={partnerPaymentEnabled}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setPartnerPaymentEnabled(next);
+                        if (next && !partnerId && partners.length > 0) {
+                          setPartnerId(partners[0].id);
+                        }
+                      }}
+                      className="rounded-full text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Partner Payment from this {term.singular}</span>
+                    </div>
+                  </label>
+                  {partnerPaymentEnabled && (
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-indigo-700 font-mono tabular-nums">
+                        {formatCurrency(calculatedPartnerTotal, currency)}
+                      </div>
+                      <div className="text-[11px] text-indigo-500">
+                        Total Partner Share
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {partnerPaymentEnabled && (
+                  <div className="space-y-3 pt-1 border-t border-indigo-100">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        Select Partner
+                      </label>
+                      <select
+                        value={partnerId}
+                        onChange={(e) => setPartnerId(e.target.value)}
+                        required={partnerPaymentEnabled}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white focus:border-indigo-600 focus:outline-none font-medium"
+                      >
+                        <option value="">-- Choose Partner --</option>
+                        {partners.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.phone})
+                          </option>
+                        ))}
+                      </select>
+                      {partners.length === 0 && (
+                        <p className="text-[11px] text-amber-600 mt-1">
+                          No partners created yet. You can add partners in the Partners tab anytime.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Partner Software Charges */}
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-indigo-100">
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          Software Cut ({currency})
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={partnerSoftwareCharges}
+                          onChange={(e) =>
+                            setPartnerSoftwareCharges(e.target.value)
+                          }
+                          placeholder="e.g. 5000"
+                          className="w-full px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border border-slate-200 focus:border-indigo-600 focus:outline-none"
+                        />
+                        <div className="text-[10px] text-slate-400 mt-1 truncate">
+                          School pays: {formatCurrency(numSoftware, currency)}
+                        </div>
+                      </div>
+
+                      {/* Partner WhatsApp Charges */}
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-indigo-100">
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          WhatsApp Cut ({currency})
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={partnerWhatsappCharges}
+                          onChange={(e) =>
+                            setPartnerWhatsappCharges(e.target.value)
+                          }
+                          placeholder="e.g. 2000"
+                          className="w-full px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border border-slate-200 focus:border-indigo-600 focus:outline-none"
+                        />
+                        <div className="text-[10px] text-slate-400 mt-1 truncate">
+                          School pays: {formatCurrency(calculatedWhatsappTotal, currency)}
+                        </div>
+                      </div>
+
+                      {/* Partner Chatbot Charges */}
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-indigo-100">
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          Chatbot Cut ({currency})
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={partnerChatbotCharges}
+                          onChange={(e) =>
+                            setPartnerChatbotCharges(e.target.value)
+                          }
+                          placeholder="e.g. 1000"
+                          className="w-full px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border border-slate-200 focus:border-indigo-600 focus:outline-none"
+                        />
+                        <div className="text-[10px] text-slate-400 mt-1 truncate">
+                          School pays: {formatCurrency(numChatbot, currency)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-indigo-100/60 text-xs">
+                      <span className="text-slate-600">
+                        Net Revenue Retained (After Partner):
+                      </span>
+                      <span className="font-mono font-bold text-indigo-900">
+                        {formatCurrency(
+                          Math.max(
+                            0,
+                            calculatedClientTotal - calculatedPartnerTotal
+                          ),
+                          currency
+                        )}
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                        Partner Payout Note / Detail (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={partnerNote}
+                        onChange={(e) => setPartnerNote(e.target.value)}
+                        placeholder="e.g., 20% commission on software & monthly WhatsApp usage"
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:border-indigo-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Total Amount Bar */}
@@ -757,14 +1007,25 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     ? Math.round(c.whatsappRate * c.whatsappMessages)
                     : 0) +
                   (c.chatbotEnabled ? c.chatbotCharges : 0);
+                const partnerAssigned =
+                  c.partnerPaymentEnabled && (c.partnerName || c.partnerId);
                 return (
                   <div
                     key={c.id}
                     className="py-3 flex items-center justify-between gap-3"
                   >
                     <div>
-                      <div className="text-xs font-semibold text-slate-900">
-                        {c.name}
+                      <div className="text-xs font-semibold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                        <span>{c.name}</span>
+                        {partnerAssigned && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            <Users className="w-2.5 h-2.5" />
+                            <span>
+                              {c.partnerName || 'Partner'}:{' '}
+                              {formatCurrency(c.partnerTotalPayment || 0, currency)}
+                            </span>
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-slate-500">
                         WhatsApp: {c.whatsappRate} ×{' '}
@@ -1040,7 +1301,15 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                       className="hover:bg-slate-50/80 transition-colors"
                     >
                       <td className="py-3.5 px-3.5 font-semibold text-slate-900 border border-slate-200">
-                        <div>{client.name}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{client.name}</span>
+                          {(record.partnerPaymentEnabled || client.partnerPaymentEnabled) && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200" title={`Partner: ${record.partnerName || client.partnerName || 'Partner'}`}>
+                              <Users className="w-2.5 h-2.5" />
+                              <span>{record.partnerName || client.partnerName || 'Partner'}: {formatCurrency(record.partnerTotalPayment ?? client.partnerTotalPayment ?? 0, currency)}</span>
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[11px] font-normal text-slate-400">
                           {client.phone}
                         </div>
@@ -1254,6 +1523,27 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Partner Payout Info if enabled */}
+              {(activeModalRecord.partnerPaymentEnabled ||
+                paymentModalClient.partnerPaymentEnabled) && (
+                <div className="p-3 rounded-xl bg-indigo-50/80 border border-indigo-200 text-xs space-y-1">
+                  <div className="flex items-center justify-between font-semibold text-indigo-950">
+                    <span className="flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Partner: {activeModalRecord.partnerName || paymentModalClient.partnerName || 'Assigned Partner'}</span>
+                    </span>
+                    <span className="font-mono text-indigo-700">
+                      Payout: {formatCurrency(activeModalRecord.partnerTotalPayment ?? paymentModalClient.partnerTotalPayment ?? 0, currency)}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                    <span>
+                      Service Breakdown: Software ({formatCurrency(activeModalRecord.partnerSoftwareCharges ?? paymentModalClient.partnerSoftwareCharges ?? 0, currency)}) · WhatsApp ({formatCurrency(activeModalRecord.partnerWhatsappCharges ?? paymentModalClient.partnerWhatsappCharges ?? 0, currency)}) · Chatbot ({formatCurrency(activeModalRecord.partnerChatbotCharges ?? paymentModalClient.partnerChatbotCharges ?? 0, currency)})
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2 text-xs border-t border-b border-slate-100 py-3">
                 <div className="flex items-center justify-between">
@@ -1560,27 +1850,118 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     genWhatsappTotal +
     (Number(genChatbotCharges) || 0);
 
+  const batchActiveClients = clients.filter((c) => c.enabled);
+  const batchTotalAmount = batchActiveClients.reduce((sum, c) => {
+    const rec = getOrComputeMonthlyRecord(c, selectedMonth);
+    const sw = c.softwareEnabled
+      ? Number(c.softwareCharges) || 0
+      : Number(rec.softwareCharges) || 0;
+    const wr = c.whatsappEnabled
+      ? Number(c.whatsappRate) || 0
+      : Number(rec.whatsappRate) || 0;
+    const wm = c.whatsappEnabled
+      ? Number(c.whatsappMessages) || 0
+      : Number(rec.whatsappMessages) || 0;
+    const wc = Math.round(wr * wm);
+    const cb = c.chatbotEnabled
+      ? Number(c.chatbotCharges) || 0
+      : Number(rec.chatbotCharges) || 0;
+    return sum + sw + wc + cb + rec.previousDues;
+  }, 0);
+  const batchTotalSoftware = batchActiveClients.reduce((sum, c) => {
+    return sum + (c.softwareEnabled ? Number(c.softwareCharges) || 0 : 0);
+  }, 0);
+  const batchTotalChatbot = batchActiveClients.reduce((sum, c) => {
+    return sum + (c.chatbotEnabled ? Number(c.chatbotCharges) || 0 : 0);
+  }, 0);
+  const batchTotalWhatsapp = batchActiveClients.reduce((sum, c) => {
+    const wr = c.whatsappEnabled ? Number(c.whatsappRate) || 0 : 0;
+    const wm = c.whatsappEnabled ? Number(c.whatsappMessages) || 0 : 0;
+    return sum + Math.round(wr * wm);
+  }, 0);
+
+  const handleExecuteBatchGeneration = async () => {
+    if (!onGenerateAllMonthlyInvoices) return;
+    setBatchGenerating(true);
+    try {
+      const res = await onGenerateAllMonthlyInvoices(selectedMonth);
+      setShowBatchModal(false);
+      const count = res?.count ?? batchActiveClients.length;
+      const total = res?.totalAmount ?? batchTotalAmount;
+      setBatchSuccessBanner(
+        `Successfully generated all ${count} monthly invoices for ${selectedMonth} totaling ${formatCurrency(
+          total,
+          currency
+        )}!`
+      );
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBatchGenerating(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Invoices</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Verify WhatsApp rate &amp; message count (pre-filled from{' '}
-            {term.singular.toLowerCase()} setup), generate invoices, download PDF with{' '}
-            {term.singular.toLowerCase()} name, or share via WhatsApp
+            Verify WhatsApp rate &amp; message count, generate individual or batch invoices for all{' '}
+            {term.plural.toLowerCase()}, download PDF with {term.singular.toLowerCase()} name, or share via WhatsApp
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('invoice-log')}
-          className="px-4 py-2 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
-        >
-          <FileText className="w-4 h-4" />
-          <span>View Invoice Log ({company.receiptLog?.length || 0})</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onGenerateAllMonthlyInvoices && batchActiveClients.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowBatchModal(true)}
+              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+              title={`Generate monthly invoices for all ${batchActiveClients.length} active ${term.plural.toLowerCase()} for ${selectedMonth}`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>
+                Generate All Monthly Invoices ({batchActiveClients.length})
+              </span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('invoice-log')}
+            className="px-4 py-2 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+          >
+            <FileText className="w-4 h-4" />
+            <span>View Invoice Log ({company.receiptLog?.length || 0})</span>
+          </button>
+        </div>
       </div>
+
+      {batchSuccessBanner && (
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-900 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{batchSuccessBanner}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('invoice-log')}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs"
+            >
+              View Invoices in Log
+            </button>
+            <button
+              type="button"
+              onClick={() => setBatchSuccessBanner(null)}
+              className="text-emerald-700 hover:underline px-1.5 py-1 text-xs"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Top Generator Card — Asks for WhatsApp Rate & Number of Messages every time, pre-filled from School setup */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
@@ -1623,23 +2004,37 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </select>
           </div>
 
-          <button
-            type="button"
-            disabled={!invGeneratorClientId}
-            onClick={() =>
-              onGenerateInvoiceWithCharges(
-                invGeneratorClientId,
-                selectedMonth,
-                genSoftwareCharges,
-                genWhatsappRate,
-                genWhatsappMessages,
-                genChatbotCharges
-              )
-            }
-            className="w-full py-2.5 px-5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
-          >
-            Generate Invoice
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={!invGeneratorClientId}
+              onClick={() =>
+                onGenerateInvoiceWithCharges(
+                  invGeneratorClientId,
+                  selectedMonth,
+                  genSoftwareCharges,
+                  genWhatsappRate,
+                  genWhatsappMessages,
+                  genChatbotCharges
+                )
+              }
+              className="flex-1 py-2.5 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shadow-xs"
+            >
+              Generate Invoice
+            </button>
+
+            {onGenerateAllMonthlyInvoices && batchActiveClients.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowBatchModal(true)}
+                className="py-2.5 px-3 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5"
+                title={`Generate invoices for all ${batchActiveClients.length} active ${term.plural.toLowerCase()}`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                <span>All ({batchActiveClients.length})</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Pre-filled Rate per message, Number of messages, and Charges bar */}
@@ -1882,6 +2277,120 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
           </div>
         )}
       </div>
+
+      {/* Batch Generate All Invoices Confirmation Modal */}
+      {showBatchModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-xl space-y-5">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3.5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Generate All Monthly Invoices
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Batch generate invoices for all {batchActiveClients.length}{' '}
+                    active {term.plural.toLowerCase()} for{' '}
+                    <strong>{selectedMonth}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBatchModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Summary Breakdown Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="text-[11px] text-slate-500">{term.plural}</div>
+                <div className="text-base font-bold text-slate-900 font-mono mt-0.5">
+                  {batchActiveClients.length}
+                </div>
+              </div>
+
+              <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-200">
+                <div className="text-[11px] text-blue-700">Software</div>
+                <div className="text-base font-bold text-blue-800 font-mono mt-0.5">
+                  {formatCurrency(batchTotalSoftware, currency)}
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200">
+                <div className="text-[11px] text-emerald-700">WhatsApp</div>
+                <div className="text-base font-bold text-emerald-800 font-mono mt-0.5">
+                  {formatCurrency(batchTotalWhatsapp, currency)}
+                </div>
+              </div>
+
+              <div className="p-3 bg-purple-50/50 rounded-xl border border-purple-200">
+                <div className="text-[11px] text-purple-700">Chatbot</div>
+                <div className="text-base font-bold text-purple-800 font-mono mt-0.5">
+                  {formatCurrency(batchTotalChatbot, currency)}
+                </div>
+              </div>
+            </div>
+
+            {/* Total Invoiced Bar */}
+            <div className="p-4 rounded-xl bg-indigo-50/80 border border-indigo-200 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-indigo-950">
+                  Total Monthly Invoiced
+                </div>
+                <div className="text-[11px] text-indigo-700 mt-0.5">
+                  Includes pre-saved recurring charges and previous dues
+                </div>
+              </div>
+              <div className="text-xl font-bold text-indigo-900 font-mono tabular-nums">
+                {formatCurrency(batchTotalAmount, currency)}
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Every generated invoice will automatically be saved into the{' '}
+              <strong>Invoice Log</strong>, where you can download PDFs with the {term.singular.toLowerCase()}&apos;s name, print them, share via WhatsApp, or delete them individually.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={batchGenerating}
+                onClick={() => setShowBatchModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={batchGenerating || batchActiveClients.length === 0}
+                onClick={handleExecuteBatchGeneration}
+                className="px-5 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2 shadow-xs"
+              >
+                {batchGenerating ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Generating Invoices...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>
+                      Confirm &amp; Generate All ({batchActiveClients.length})
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Invoice Confirmation Modal */}
       {deleteInvoiceTarget && (

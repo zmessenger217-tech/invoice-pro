@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
   Bot,
@@ -20,6 +20,7 @@ import {
   AVAILABLE_MONTHS,
   CategoryTerminology,
   formatCurrency,
+  getCurrentMonthLabel,
 } from '../data/initialData';
 import {
   ClientEntity,
@@ -82,6 +83,28 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
 
   const rawLogs: GeneratedReceiptItem[] = company.receiptLog || [];
   const currency = company.currency || 'Rs.';
+  const currentMonth = getCurrentMonthLabel();
+
+  // In month dropdown in receipt log: ONLY show all previous months on which we generated invoices, and the current month
+  const availableLoggedMonths = useMemo(() => {
+    const setOfMonths = new Set<string>();
+
+    // Include current month
+    setOfMonths.add(currentMonth);
+
+    // Include all months from generated receipts/invoices log
+    (company.receiptLog || []).forEach((item) => {
+      if (item.month) setOfMonths.add(item.month);
+    });
+
+    // Sort matching AVAILABLE_MONTHS chronological sequence (most recent first)
+    return Array.from(setOfMonths).sort((a, b) => {
+      const idxA = AVAILABLE_MONTHS.indexOf(a);
+      const idxB = AVAILABLE_MONTHS.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxB - idxA;
+      return b.localeCompare(a);
+    });
+  }, [company.receiptLog, currentMonth]);
 
   const filteredLogs = rawLogs.filter((item) => {
     if (monthFilter !== 'all' && item.month !== monthFilter) {
@@ -300,12 +323,21 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
               onChange={(e) => setMonthFilter(e.target.value)}
               className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-600 focus:outline-none"
             >
-              <option value="all">All Months</option>
-              {AVAILABLE_MONTHS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
+              <option value="all">
+                All Generated Months ({rawLogs.length} invoices)
+              </option>
+              {availableLoggedMonths.map((m) => {
+                const countForMonth = rawLogs.filter(
+                  (r) => r.month === m
+                ).length;
+                return (
+                  <option key={m} value={m}>
+                    {m}
+                    {m === currentMonth ? ' • Current Month' : ''} (
+                    {countForMonth} invoices)
+                  </option>
+                );
+              })}
             </select>
           </div>
 

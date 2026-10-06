@@ -1,15 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import {
+  AlertCircle,
   Building2,
   Calendar,
   Check,
+  CheckCircle2,
   CreditCard,
+  Eye,
+  FileText,
   Plus,
+  Printer,
   QrCode,
   Search,
   Trash2,
   UploadCloud,
   UserCheck,
+  Users,
+  X,
 } from 'lucide-react';
 import {
   AVAILABLE_MONTHS,
@@ -17,6 +24,7 @@ import {
   CategoryTerminology,
   formatCurrency,
   getIssueDateForMonth,
+  getOrComputeMonthlyRecord,
 } from '../data/initialData';
 import {
   ActiveNavTab,
@@ -118,6 +126,7 @@ export const FinanceAndSettingsViews: React.FC<
   const [partnerName, setPartnerName] = useState('');
   const [partnerPhone, setPartnerPhone] = useState('');
   const [partnerMonthlyPayment, setPartnerMonthlyPayment] = useState('');
+  const [detailPartnerModal, setDetailPartnerModal] = useState<PartnerItem | null>(null);
 
   // 11. Finance Report Filter State
   const [reportScope, setReportScope] = useState<
@@ -451,19 +460,58 @@ export const FinanceAndSettingsViews: React.FC<
   if (activeTab === 'partners') {
     const remainingAfterPartners = monthlyRevenue - partnerPayoutsTotal;
 
+    // Helper to get linked schools for a specific partner in the selected month
+    const getPartnerSchoolsData = (partnerId: string) => {
+      return clients
+        .filter((c) => c.enabled)
+        .map((c) => {
+          const rec = getOrComputeMonthlyRecord(c, selectedMonth);
+          const isLinked =
+            (rec.partnerId === partnerId && rec.partnerPaymentEnabled) ||
+            (c.partnerId === partnerId && c.partnerPaymentEnabled);
+          return {
+            client: c,
+            record: rec,
+            isLinked,
+            softwarePay: Number(rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0),
+            whatsappPay: Number(rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0),
+            chatbotPay: Number(rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0),
+            totalPay: Number(rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0),
+            schoolTotal: rec.currentMonthTotal,
+            schoolPaid: rec.amountPaid,
+            schoolRemaining: rec.remainingDues,
+            schoolStatus: rec.status,
+            partnerNote: rec.partnerNote || c.partnerNote,
+          };
+        })
+        .filter((item) => item.isLinked);
+    };
+
+    const modalPartnerSchools = detailPartnerModal
+      ? getPartnerSchoolsData(detailPartnerModal.id)
+      : [];
+    const modalTotalPayout = detailPartnerModal
+      ? modalPartnerSchools.reduce((sum, s) => sum + s.totalPay, 0) ||
+        detailPartnerModal.monthlyPayment
+      : 0;
+    const modalTotalSchoolRevenue = detailPartnerModal
+      ? modalPartnerSchools.reduce((sum, s) => sum + s.schoolTotal, 0)
+      : 0;
+
     return (
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Partners</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Manage partners and monthly payouts for <strong>{selectedMonth}</strong>.
+              Manage partners, school service commissions, and monthly payouts for{' '}
+              <strong>{selectedMonth}</strong>.
             </p>
           </div>
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white"
+            className="px-3.5 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white shadow-xs focus:border-blue-600 focus:outline-none"
           >
             {AVAILABLE_MONTHS.map((m) => (
               <option key={m} value={m}>
@@ -477,19 +525,22 @@ export const FinanceAndSettingsViews: React.FC<
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <div className="text-xs font-medium text-slate-500">
-              Total Revenue ({selectedMonth})
+              Total {term.plural} Revenue ({selectedMonth})
             </div>
             <div className="text-2xl font-bold text-slate-900 font-mono tabular-nums mt-1.5">
               {formatCurrency(monthlyRevenue, currency)}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="text-xs font-medium text-slate-500">
+          <div className="bg-white rounded-xl border border-indigo-200 bg-indigo-50/20 p-5">
+            <div className="text-xs font-medium text-indigo-900">
               Partner Payments ({selectedMonth})
             </div>
-            <div className="text-2xl font-bold text-blue-600 font-mono tabular-nums mt-1.5">
+            <div className="text-2xl font-bold text-indigo-600 font-mono tabular-nums mt-1.5">
               {formatCurrency(partnerPayoutsTotal, currency)}
+            </div>
+            <div className="text-[11px] text-indigo-500 mt-1">
+              Total payouts across all partner-linked {term.plural.toLowerCase()}
             </div>
           </div>
 
@@ -501,14 +552,20 @@ export const FinanceAndSettingsViews: React.FC<
               {formatCurrency(remainingAfterPartners, currency)}
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
-              Total revenue after giving partner payments
+              Net profit retained by company after partner payouts
             </div>
           </div>
         </div>
 
         {/* Add Partner Card */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
-          <h2 className="text-sm font-bold text-slate-900 mb-4">Add Partner</h2>
+          <h2 className="text-sm font-bold text-slate-900 mb-1 flex items-center gap-2">
+            <Plus className="w-4 h-4 text-blue-600" />
+            <span>Add Partner</span>
+          </h2>
+          <p className="text-xs text-slate-500 mb-4">
+            Add partners to link with {term.plural.toLowerCase()} and automatically compute per-service commission payouts.
+          </p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -524,7 +581,7 @@ export const FinanceAndSettingsViews: React.FC<
               onAddPartner(newPartner);
               setPartnerName('');
               setPartnerPhone('');
-              setPartnerMonthlyPayment('10000');
+              setPartnerMonthlyPayment('');
             }}
             className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end text-xs"
           >
@@ -537,7 +594,7 @@ export const FinanceAndSettingsViews: React.FC<
                 required
                 value={partnerName}
                 onChange={(e) => setPartnerName(e.target.value)}
-                placeholder="Ali Raza"
+                placeholder="e.g., Ali Raza"
                 className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-200 focus:border-blue-600 focus:outline-none"
               />
             </div>
@@ -558,15 +615,14 @@ export const FinanceAndSettingsViews: React.FC<
 
             <div>
               <label className="block font-medium text-slate-600 mb-1.5">
-                Monthly Payment ({currency})
+                Default / Flat Monthly Payment ({currency})
               </label>
               <input
                 type="number"
                 min={0}
-                required
                 value={partnerMonthlyPayment}
                 onChange={(e) => setPartnerMonthlyPayment(e.target.value)}
-                placeholder="10000"
+                placeholder="Optional or 0"
                 className="w-full px-3.5 py-2.5 text-sm font-mono rounded-lg border border-slate-200 focus:border-blue-600 focus:outline-none"
               />
             </div>
@@ -580,41 +636,84 @@ export const FinanceAndSettingsViews: React.FC<
           </form>
         </div>
 
-        {/* Partners List Table */}
+        {/* Partners List & School Breakdown */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-          <h2 className="text-sm font-bold text-slate-900">
-            Partners List ({selectedMonth})
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                Partners List ({selectedMonth})
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Shows all partners, their linked {term.plural.toLowerCase()} with exact payment cuts, and service details.
+              </p>
+            </div>
+            <span className="px-3 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
+              {partners.length} {partners.length === 1 ? 'Partner' : 'Partners'} Total
+            </span>
+          </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-[11px] font-semibold text-slate-500">
-                  <th className="py-3 px-3">Name</th>
-                  <th className="py-3 px-3">Phone</th>
-                  <th className="py-3 px-3 text-right">Monthly Payment</th>
-                  <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {partners.map((p) => {
-                  const isPaid = Boolean(p.paidMonths[selectedMonth]?.paid);
-                  return (
-                    <tr key={p.id} className="hover:bg-slate-50/80">
-                      <td className="py-3.5 px-3 font-semibold text-slate-900">
-                        {p.name}
-                      </td>
-                      <td className="py-3.5 px-3 font-mono text-slate-600">
-                        {p.phone}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums">
-                        {formatCurrency(p.monthlyPayment, currency)}
-                      </td>
-                      <td className="py-3.5 px-3">
+          {partners.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
+              No partners added yet. Use the form above to register your first partner.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {partners.map((p) => {
+                const partnerSchools = getPartnerSchoolsData(p.id);
+                const schoolPayoutsSum = partnerSchools.reduce(
+                  (sum, s) => sum + s.totalPay,
+                  0
+                );
+                const finalPayout =
+                  schoolPayoutsSum > 0 ? schoolPayoutsSum : p.monthlyPayment;
+                const isPaid = Boolean(p.paidMonths[selectedMonth]?.paid);
+
+                return (
+                  <div
+                    key={p.id}
+                    className="py-4 space-y-3 hover:bg-slate-50/50 p-3 rounded-xl transition-colors border border-transparent hover:border-slate-200"
+                  >
+                    {/* Partner Header Row */}
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm shrink-0">
+                          <Users className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                            <span>{p.name}</span>
+                            <span className="text-xs font-mono font-normal text-slate-500">
+                              ({p.phone})
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            Linked to{' '}
+                            <strong>
+                              {partnerSchools.length}{' '}
+                              {partnerSchools.length === 1
+                                ? term.singular
+                                : term.plural}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Action & Payout Block */}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="text-right">
+                          <div className="text-xs text-slate-500">
+                            Monthly Payout ({selectedMonth})
+                          </div>
+                          <div className="text-base font-bold text-indigo-600 font-mono tabular-nums">
+                            {formatCurrency(finalPayout, currency)}
+                          </div>
+                        </div>
+
                         <span
-                          className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
-                            isPaid ? 'text-emerald-700' : 'text-amber-700'
+                          className={`inline-flex items-center gap-1.5 font-semibold text-xs px-2.5 py-1 rounded-full ${
+                            isPaid
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}
                         >
                           <span
@@ -624,41 +723,113 @@ export const FinanceAndSettingsViews: React.FC<
                           />
                           <span>{isPaid ? 'Paid' : 'Pending'}</span>
                         </span>
-                      </td>
-                      <td className="py-3.5 px-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onTogglePartnerPaid(p.id, selectedMonth)
-                            }
-                            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                              isPaid
-                                ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                                : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                            }`}
-                          >
-                            <UserCheck className="w-3.5 h-3.5" />
-                            <span>
-                              {isPaid ? 'Mark Pending' : 'Mark as Paid'}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDeletePartner(p.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
-                            title="Delete Partner"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setDetailPartnerModal(p)}
+                          className="px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                          title="See detailed breakdown of service charges paid to this partner"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>See Details</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onTogglePartnerPaid(p.id, selectedMonth)
+                          }
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                            isPaid
+                              ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          }`}
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>
+                            {isPaid ? 'Mark Pending' : 'Mark as Paid'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onDeletePartner(p.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
+                          title="Delete Partner"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Assigned Schools by School Name + How Much Paid from Each School */}
+                    <div className="bg-slate-50/80 rounded-xl p-3 border border-slate-200/80 space-y-2">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                        <span>
+                          {term.plural} assigned to {p.name} &amp; Payout from each {term.singular.toLowerCase()}:
+                        </span>
+                        {partnerSchools.length > 0 && (
+                          <span className="font-mono text-indigo-600 font-semibold lowercase">
+                            {formatCurrency(schoolPayoutsSum, currency)} total from {partnerSchools.length} {partnerSchools.length === 1 ? term.singular.toLowerCase() : term.plural.toLowerCase()}
+                          </span>
+                        )}
+                      </div>
+
+                      {partnerSchools.length === 0 ? (
+                        <div className="text-xs text-slate-400 italic py-1">
+                          No {term.plural.toLowerCase()} linked yet. In the &quot;Add {term.singular}&quot; or &quot;Edit {term.singular}&quot; view, check &quot;Partner Payment&quot; and choose {p.name} to assign {term.plural.toLowerCase()}.
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
+                          {partnerSchools.map((item) => (
+                            <div
+                              key={item.client.id}
+                              className="bg-white p-3 rounded-lg border border-slate-200 flex items-center justify-between gap-3 shadow-2xs"
+                            >
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-1.5">
+                                  <span>🏫 {item.client.name}</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                                  <span>
+                                    Payout from this {term.singular.toLowerCase()}:{' '}
+                                    <strong className="text-indigo-600 font-mono">
+                                      {formatCurrency(item.totalPay, currency)}
+                                    </strong>
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[9px] font-semibold ${
+                                      item.schoolStatus === 'Paid'
+                                        ? 'bg-emerald-50 text-emerald-700'
+                                        : 'bg-amber-50 text-amber-700'
+                                    }`}
+                                  >
+                                    {term.singular}: {item.schoolStatus}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                                  Software: {formatCurrency(item.softwarePay, currency)} · WhatsApp: {formatCurrency(item.whatsappPay, currency)} · Chatbot: {formatCurrency(item.chatbotPay, currency)}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => setDetailPartnerModal(p)}
+                                className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors shrink-0 flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Detail</span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Partner Revenue Deduction Bar */}
           <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4 text-xs">
@@ -672,7 +843,7 @@ export const FinanceAndSettingsViews: React.FC<
               <span className="text-slate-500">
                 Partner Payments (Paid in {selectedMonth}):{' '}
               </span>
-              <span className="font-mono font-bold text-blue-600">
+              <span className="font-mono font-bold text-indigo-600">
                 {formatCurrency(partnerPayoutsTotal, currency)}
               </span>
             </div>
@@ -684,6 +855,258 @@ export const FinanceAndSettingsViews: React.FC<
             </div>
           </div>
         </div>
+
+        {/* Detailed Partner & School Service Commission Modal ("See Details") */}
+        {detailPartnerModal && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl border border-slate-200 max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">
+                        Partner Payout Details — {detailPartnerModal.name}
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Phone: {detailPartnerModal.phone} · Billing Month:{' '}
+                        <strong>{selectedMonth}</strong>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetailPartnerModal(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Top Summary Metrics for this Partner */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200 text-xs">
+                  <div className="text-slate-600 font-medium">
+                    Total Partner Payout
+                  </div>
+                  <div className="text-xl font-bold text-indigo-700 font-mono tabular-nums mt-1">
+                    {formatCurrency(modalTotalPayout, currency)}
+                  </div>
+                  <div className="text-[10px] text-indigo-500 mt-0.5">
+                    For {selectedMonth}
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                  <div className="text-slate-600 font-medium">
+                    Linked {term.plural}
+                  </div>
+                  <div className="text-xl font-bold text-slate-900 font-mono tabular-nums mt-1">
+                    {modalPartnerSchools.length}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    Assigned institutions
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+                  <div className="text-emerald-800 font-medium">
+                    School Revenue Generated
+                  </div>
+                  <div className="text-xl font-bold text-emerald-700 font-mono tabular-nums mt-1">
+                    {formatCurrency(modalTotalSchoolRevenue, currency)}
+                  </div>
+                  <div className="text-[10px] text-emerald-600 mt-0.5">
+                    Net retained: {formatCurrency(Math.max(0, modalTotalSchoolRevenue - modalTotalPayout), currency)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Service Charges Breakdown by School */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Itemized Service Charges Breakdown by {term.singular}
+                </h4>
+
+                {modalPartnerSchools.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-slate-200">
+                    No individual {term.plural.toLowerCase()} linked to this partner yet. This partner currently receives a fixed monthly payment of {formatCurrency(detailPartnerModal.monthlyPayment, currency)}.
+                  </div>
+                ) : (
+                  modalPartnerSchools.map((item) => (
+                    <div
+                      key={item.client.id}
+                      className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs"
+                    >
+                      {/* School Header */}
+                      <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                            <span>🏫 {item.client.name}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                item.schoolStatus === 'Paid'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {term.singular} Status: {item.schoolStatus}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {item.client.address || 'No address'} · Contact:{' '}
+                            {item.client.phone}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-[11px] text-slate-500">
+                            Partner Payment from this {term.singular.toLowerCase()}
+                          </div>
+                          <div className="text-sm font-bold text-indigo-600 font-mono">
+                            {formatCurrency(item.totalPay, currency)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Service Breakdown Table */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-100 text-[11px] font-semibold text-slate-500 bg-slate-50/50">
+                              <th className="py-2.5 px-4">Service</th>
+                              <th className="py-2.5 px-4 text-right">
+                                {term.singular} Charged
+                              </th>
+                              <th className="py-2.5 px-4 text-right text-indigo-700">
+                                Paid to Partner
+                              </th>
+                              <th className="py-2.5 px-4 text-right text-emerald-700">
+                                Company Retained
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            <tr>
+                              <td className="py-2.5 px-4 font-medium text-slate-800">
+                                Software Management
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-slate-700">
+                                {formatCurrency(item.record.softwareCharges, currency)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono font-semibold text-indigo-600">
+                                {formatCurrency(item.softwarePay, currency)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-emerald-600">
+                                {formatCurrency(
+                                  Math.max(
+                                    0,
+                                    item.record.softwareCharges - item.softwarePay
+                                  ),
+                                  currency
+                                )}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="py-2.5 px-4 font-medium text-slate-800">
+                                <div>WhatsApp Communication</div>
+                                <div className="text-[10px] text-slate-400 font-mono">
+                                  {item.record.whatsappRate} × {item.record.whatsappMessages.toLocaleString()} msgs
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-slate-700">
+                                {formatCurrency(item.record.whatsappCharges, currency)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono font-semibold text-indigo-600">
+                                {formatCurrency(item.whatsappPay, currency)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-emerald-600">
+                                {formatCurrency(
+                                  Math.max(
+                                    0,
+                                    item.record.whatsappCharges - item.whatsappPay
+                                  ),
+                                  currency
+                                )}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="py-2.5 px-4 font-medium text-slate-800">
+                                AI Chatbot
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-slate-700">
+                                {formatCurrency(item.record.chatbotCharges, currency)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono font-semibold text-indigo-600">
+                                {formatCurrency(item.chatbotPay, currency)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-emerald-600">
+                                {formatCurrency(
+                                  Math.max(
+                                    0,
+                                    item.record.chatbotCharges - item.chatbotPay
+                                  ),
+                                  currency
+                                )}
+                              </td>
+                            </tr>
+                            <tr className="bg-slate-50/80 font-bold border-t border-slate-200">
+                              <td className="py-2.5 px-4 text-slate-900">
+                                Total from {item.client.name}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-slate-900">
+                                {formatCurrency(item.schoolTotal, currency)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-indigo-700 text-sm">
+                                {formatCurrency(item.totalPay, currency)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-emerald-700 text-sm">
+                                {formatCurrency(
+                                  Math.max(0, item.schoolTotal - item.totalPay),
+                                  currency
+                                )}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {item.partnerNote && (
+                        <div className="px-4 py-2 bg-indigo-50/50 border-t border-indigo-100 text-[11px] text-indigo-900">
+                          <strong>Note:</strong> {item.partnerNote}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center gap-1.5 transition-colors"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Payout Statement</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailPartnerModal(null)}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

@@ -400,9 +400,18 @@ export default function App() {
     () =>
       partners.reduce((sum, p) => {
         const isPaid = p.paidMonths[selectedMonth]?.paid;
-        return sum + (isPaid ? p.monthlyPayment : 0);
+        const linkedSchoolsTotal = activeLedgerRecords
+          .filter(
+            (r) =>
+              (r.partnerId === p.id && r.partnerPaymentEnabled) ||
+              (clients.find((c) => c.id === r.invoiceNumber)?.partnerId === p.id)
+          )
+          .reduce((s, r) => s + (r.partnerTotalPayment || 0), 0);
+        const payout =
+          linkedSchoolsTotal > 0 ? linkedSchoolsTotal : p.monthlyPayment || 0;
+        return sum + (isPaid ? payout : 0);
       }, 0),
-    [partners, selectedMonth]
+    [partners, activeLedgerRecords, clients, selectedMonth]
   );
 
   const handleUpdateCompany = async (updated: CompanyProfile) => {
@@ -807,6 +816,152 @@ export default function App() {
     }
   };
 
+  const handleGenerateAllMonthlyInvoices = async (
+    month: string
+  ): Promise<{ count: number; totalAmount: number }> => {
+    const targets = clients.filter((c) => c.enabled);
+    if (targets.length === 0) return { count: 0, totalAmount: 0 };
+
+    const targetIds = new Set(targets.map((c) => c.id));
+    const nowTimestamp = Date.now();
+    const formattedDateNow = new Date().toLocaleString('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+
+    const newReceiptItems: GeneratedReceiptItem[] = [];
+    const updatedClientsMap = new Map<string, ClientEntity>();
+    let grandTotalAmount = 0;
+
+    for (let i = 0; i < targets.length; i++) {
+      const client = targets[i];
+      const currentRec = getOrComputeMonthlyRecord(client, month);
+
+      const softwareCharges = client.softwareEnabled
+        ? Number(client.softwareCharges) || 0
+        : Number(currentRec.softwareCharges) || 0;
+      const whatsappRate = client.whatsappEnabled
+        ? Number(client.whatsappRate) || 0
+        : Number(currentRec.whatsappRate) || 0;
+      const whatsappMessages = client.whatsappEnabled
+        ? Number(client.whatsappMessages) || 0
+        : Number(currentRec.whatsappMessages) || 0;
+      const whatsappCharges = Math.round(whatsappRate * whatsappMessages);
+      const chatbotCharges = client.chatbotEnabled
+        ? Number(client.chatbotCharges) || 0
+        : Number(currentRec.chatbotCharges) || 0;
+
+      const currentMonthTotal =
+        softwareCharges + whatsappCharges + chatbotCharges;
+      const totalAmount = currentMonthTotal + currentRec.previousDues;
+      const remainingDues = Math.max(0, totalAmount - currentRec.amountPaid);
+      const status =
+        remainingDues === 0
+          ? 'Paid'
+          : currentRec.amountPaid > 0
+          ? 'Partially Paid'
+          : 'Unpaid';
+
+      grandTotalAmount += totalAmount;
+
+      const updatedClient: ClientEntity = {
+        ...client,
+        softwareCharges,
+        whatsappRate,
+        whatsappMessages,
+        whatsappCharges,
+        chatbotCharges,
+        monthlyRecords: {
+          ...client.monthlyRecords,
+          [month]: {
+            ...currentRec,
+            softwareCharges,
+            whatsappRate,
+            whatsappMessages,
+            whatsappCharges,
+            chatbotCharges,
+            currentMonthTotal,
+            totalAmount,
+            remainingDues,
+            status,
+          },
+        },
+      };
+
+      updatedClientsMap.set(client.id, updatedClient);
+
+      const docData = buildEditableInvoiceFromClient(
+        company,
+        updatedClient,
+        month
+      );
+
+      const newReceiptItem: GeneratedReceiptItem = {
+        id: `inv-log-${nowTimestamp}-${client.id}`,
+        clientId: client.id,
+        clientName: client.name,
+        clientPhone: client.phone,
+        invoiceNumber:
+          currentRec.invoiceNumber || `INV-${String(i + 1).padStart(3, '0')}`,
+        month,
+        invoiceDate: docData.invoiceDate,
+        dueDate: docData.dueDate,
+        softwareCharges,
+        whatsappRate,
+        whatsappMessages,
+        whatsappCharges,
+        chatbotCharges,
+        previousDues: currentRec.previousDues,
+        currentMonthTotal,
+        totalAmount,
+        amountPaid: currentRec.amountPaid,
+        remainingDues,
+        status,
+        generatedAt: formattedDateNow,
+        doc: docData,
+      };
+
+      newReceiptItems.push(newReceiptItem);
+    }
+
+    const nextClients = clients.map((c) =>
+      updatedClientsMap.has(c.id) ? updatedClientsMap.get(c.id)! : c
+    );
+
+    const existingLog = (company.receiptLog || []).filter(
+      (r) => !(targetIds.has(r.clientId) && r.month === month)
+    );
+
+    const updatedCompany: CompanyProfile = {
+      ...company,
+      receiptLog: [...newReceiptItems, ...existingLog],
+      receiptLogMonth: month,
+    };
+
+    setClients(nextClients);
+    setCompany(updatedCompany);
+
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
+      try {
+        const clientSyncPromises = Array.from(updatedClientsMap.values()).map(
+          (c) => syncClientToFirestore(activeUser.uid, c, false)
+        );
+        await Promise.all([
+          ...clientSyncPromises,
+          syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany),
+        ]);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    return {
+      count: targets.length,
+      totalAmount: grandTotalAmount,
+    };
+  };
+
   const handleDeleteInvoice = async (clientId: string, month: string) => {
     const target = clients.find((c) => c.id === clientId);
     if (!target) return;
@@ -1068,10 +1223,21 @@ export default function App() {
 
     const activeUser = firebaseUser || auth.currentUser;
     if (nextPaid) {
+      const partnerSchools = clients
+        .filter((c) => c.enabled)
+        .map((c) => getOrComputeMonthlyRecord(c, month))
+        .filter((r) => r.partnerId === partnerId && r.partnerPaymentEnabled);
+      const schoolsCut = partnerSchools.reduce(
+        (sum, r) => sum + (r.partnerTotalPayment || 0),
+        0
+      );
+      const payoutAmount =
+        schoolsCut > 0 ? schoolsCut : target.monthlyPayment;
+
       const partnerExpense: ExpenseItem = {
         id: autoExpenseId,
         description: `Partner Payout — ${target.name}`,
-        amount: target.monthlyPayment,
+        amount: payoutAmount,
         category: 'Partner Payout',
         date: `15 ${month}`,
         month,
@@ -1546,6 +1712,7 @@ export default function App() {
               company={company}
               term={term}
               clients={clients}
+              partners={partners}
               selectedMonth={selectedMonth}
               setSelectedMonth={setSelectedMonth}
               monthlyRevenue={monthlyRevenue}
@@ -1559,6 +1726,7 @@ export default function App() {
               onQuickPrintInvoice={handleQuickPrintInvoice}
               onQuickWhatsAppInvoice={handleQuickWhatsAppInvoice}
               onDeleteInvoice={handleDeleteInvoice}
+              onGenerateAllMonthlyInvoices={handleGenerateAllMonthlyInvoices}
             />
           )}
 

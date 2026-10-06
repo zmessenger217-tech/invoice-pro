@@ -110,6 +110,15 @@ export interface MonthlyLedgerRecord {
   invoiceDate: string;
   dueDate?: string;
   payments: PaymentTransaction[];
+  // Partner Payment & Service Commission details for this school/client in this month
+  partnerId?: string;
+  partnerName?: string;
+  partnerPaymentEnabled?: boolean;
+  partnerSoftwareCharges?: number;
+  partnerWhatsappCharges?: number;
+  partnerChatbotCharges?: number;
+  partnerTotalPayment?: number;
+  partnerNote?: string;
 }
 
 export interface ClientEntity {
@@ -128,6 +137,15 @@ export interface ClientEntity {
   whatsappCharges: number;
   chatbotEnabled: boolean;
   chatbotCharges: number;
+  // Partner payment configuration for this school/client
+  partnerId?: string;
+  partnerName?: string;
+  partnerPaymentEnabled?: boolean;
+  partnerSoftwareCharges?: number;
+  partnerWhatsappCharges?: number;
+  partnerChatbotCharges?: number;
+  partnerTotalPayment?: number;
+  partnerNote?: string;
   // Monthly billing & payment ledger keyed by month string e.g. 'May 2026'
   monthlyRecords: Record<string, MonthlyLedgerRecord>;
 }
