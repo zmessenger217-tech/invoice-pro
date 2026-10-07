@@ -321,10 +321,14 @@ export function buildInvoicePdfInstance(
     {
       no: '02',
       label:
-        docData.whatsappLabel ||
-        (docData.whatsappBillingType === 'per_month'
-          ? 'WhatsApp Charges'
-          : `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`),
+        docData.whatsappBillingType === 'per_month' ||
+        (docData.whatsappCharges > 0 &&
+          (docData.whatsappRate === 0 || docData.whatsappMessages === 0))
+          ? docData.whatsappLabel && !docData.whatsappLabel.includes('(')
+            ? docData.whatsappLabel
+            : 'WhatsApp Charges'
+          : docData.whatsappLabel ||
+            `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`,
       amount: formatCurrency(docData.whatsappCharges, currency),
     },
     {
@@ -897,7 +901,16 @@ export function printInvoiceDocument(
                   </tr>
                   <tr>
                     <td class="mono" style="color:#94a3b8;font-weight:700;">02</td>
-                    <td style="font-weight:600;">${docData.whatsappLabel || (docData.whatsappBillingType === 'per_month' ? 'WhatsApp Charges' : `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`)}</td>
+                    <td style="font-weight:600;">${
+                      docData.whatsappBillingType === 'per_month' ||
+                      (docData.whatsappCharges > 0 &&
+                        (docData.whatsappRate === 0 || docData.whatsappMessages === 0))
+                        ? docData.whatsappLabel && !docData.whatsappLabel.includes('(')
+                          ? docData.whatsappLabel
+                          : 'WhatsApp Charges'
+                        : docData.whatsappLabel ||
+                          `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`
+                    }</td>
                     <td class="mono" style="text-align:right;font-weight:700;">${formatCurrency(docData.whatsappCharges, currency)}</td>
                   </tr>
                   <tr>

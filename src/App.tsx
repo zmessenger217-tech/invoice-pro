@@ -149,7 +149,10 @@ function buildEditableInvoiceFromClient(
   }
 
   const rec = getOrComputeMonthlyRecord(client, month);
-  const isPerMonthWhatsapp = rec.whatsappBillingType === 'per_month';
+  const isPerMonthWhatsapp =
+    rec.whatsappBillingType === 'per_month' ||
+    (rec.whatsappCharges > 0 &&
+      (rec.whatsappRate === 0 || rec.whatsappMessages === 0));
   const whatsappLabel = isPerMonthWhatsapp
     ? 'WhatsApp Charges'
     : `WhatsApp Charges (${rec.whatsappRate} × ${rec.whatsappMessages.toLocaleString()})`;
@@ -188,7 +191,7 @@ function buildEditableInvoiceFromClient(
     softwareLabel,
     softwareCharges: rec.softwareCharges,
     whatsappLabel,
-    whatsappBillingType: rec.whatsappBillingType || 'per_message',
+    whatsappBillingType: isPerMonthWhatsapp ? 'per_month' : 'per_message',
     whatsappRate: rec.whatsappRate,
     whatsappMessages: rec.whatsappMessages,
     whatsappCharges: rec.whatsappCharges,
@@ -271,13 +274,19 @@ export default function App() {
     );
   }, [selectedMonth, clients, company]);
 
-  // Automatically persist invoiceNote and QR codes to client ledger & workspace Firestore as user edits
+  // Automatically persist invoiceNote, QR codes, and charge edits (including WhatsApp charges) to client ledger & workspace Firestore as user edits
   const handleChangeInvoiceDoc = (nextDoc: InvoiceEditableDocument) => {
     const noteChanged = nextDoc.invoiceNote !== invoiceDoc.invoiceNote;
     const qrsChanged = nextDoc.qrCodes !== invoiceDoc.qrCodes;
-    setInvoiceDoc(nextDoc);
-
-    if (!noteChanged && !qrsChanged) return;
+    const chargesChanged =
+      nextDoc.softwareCharges !== invoiceDoc.softwareCharges ||
+      nextDoc.whatsappCharges !== invoiceDoc.whatsappCharges ||
+      nextDoc.whatsappRate !== invoiceDoc.whatsappRate ||
+      nextDoc.whatsappMessages !== invoiceDoc.whatsappMessages ||
+      nextDoc.whatsappBillingType !== invoiceDoc.whatsappBillingType ||
+      nextDoc.chatbotCharges !== invoiceDoc.chatbotCharges ||
+      nextDoc.previousDues !== invoiceDoc.previousDues ||
+      nextDoc.amountPaid !== invoiceDoc.amountPaid;
 
     const month = nextDoc.billingMonth || selectedMonth;
     const target =
@@ -285,16 +294,93 @@ export default function App() {
       clients.find((c) => c.id === editorClientId) ||
       clients[0];
 
+    let effectiveNextDoc = nextDoc;
     let updatedClientForSync: ClientEntity | undefined;
-    if (target && noteChanged) {
+
+    if (target && (noteChanged || chargesChanged)) {
       const currentRec = getOrComputeMonthlyRecord(target, month);
+      const billingType =
+        nextDoc.whatsappBillingType ||
+        currentRec.whatsappBillingType ||
+        target.whatsappBillingType ||
+        'per_message';
+      const softwareCharges = Number(nextDoc.softwareCharges) || 0;
+      const whatsappRate = Number(nextDoc.whatsappRate) || 0;
+      const whatsappMessages = Number(nextDoc.whatsappMessages) || 0;
+      const computedPerMsg = Math.round(whatsappRate * whatsappMessages);
+      const directWhatsapp = Number(nextDoc.whatsappCharges) || 0;
+      const whatsappCharges =
+        billingType === 'per_month'
+          ? directWhatsapp > 0
+            ? directWhatsapp
+            : computedPerMsg
+          : computedPerMsg > 0
+          ? computedPerMsg
+          : directWhatsapp;
+      const chatbotCharges = Number(nextDoc.chatbotCharges) || 0;
+      const previousDues = Number(nextDoc.previousDues) || 0;
+      const currentMonthTotal =
+        softwareCharges + whatsappCharges + chatbotCharges;
+      const totalAmount = currentMonthTotal + previousDues;
+
+      // If this client was already marked Paid, and the user added WhatsApp/service charges without manually changing amountPaid, keep amountPaid synced with totalAmount so revenue updates immediately
+      const wasPaidInFull =
+        currentRec.status === 'Paid' &&
+        currentRec.totalAmount > 0 &&
+        currentRec.amountPaid >= currentRec.totalAmount;
+      const userEditedAmountPaidDirectly =
+        nextDoc.amountPaid !== invoiceDoc.amountPaid;
+      const amountPaid =
+        wasPaidInFull && !userEditedAmountPaidDirectly
+          ? totalAmount
+          : Number(nextDoc.amountPaid) || 0;
+
+      const remainingDues = Math.max(0, totalAmount - amountPaid);
+      const status =
+        remainingDues === 0
+          ? 'Paid'
+          : amountPaid > 0
+          ? 'Partially Paid'
+          : 'Unpaid';
+
+      effectiveNextDoc = {
+        ...nextDoc,
+        whatsappBillingType: billingType,
+        whatsappCharges,
+        whatsappLabel:
+          billingType === 'per_month' && nextDoc.whatsappLabel?.includes('(')
+            ? 'WhatsApp Charges'
+            : nextDoc.whatsappLabel || (billingType === 'per_month' ? 'WhatsApp Charges' : `WhatsApp Charges (${whatsappRate} × ${whatsappMessages.toLocaleString()})`),
+        amountPaid,
+        status,
+      };
+
       updatedClientForSync = {
         ...target,
+        softwareCharges,
+        whatsappEnabled: whatsappCharges > 0 ? true : target.whatsappEnabled,
+        whatsappBillingType: billingType,
+        whatsappRate,
+        whatsappMessages,
+        whatsappCharges,
+        chatbotCharges,
         monthlyRecords: {
           ...target.monthlyRecords,
           [month]: {
             ...currentRec,
-            invoiceNote: nextDoc.invoiceNote ?? '',
+            softwareCharges,
+            whatsappBillingType: billingType,
+            whatsappRate,
+            whatsappMessages,
+            whatsappCharges,
+            chatbotCharges,
+            previousDues,
+            currentMonthTotal,
+            totalAmount,
+            amountPaid,
+            remainingDues,
+            status,
+            invoiceNote: effectiveNextDoc.invoiceNote ?? '',
           },
         },
       };
@@ -303,34 +389,61 @@ export default function App() {
       );
     }
 
+    setInvoiceDoc(effectiveNextDoc);
+
+    if (!noteChanged && !qrsChanged && !chargesChanged) return;
+
     const updatedReceiptLog = Array.isArray(company.receiptLog)
-      ? company.receiptLog.map((r) =>
-          target && r.clientId === target.id && r.month === month
-            ? {
-                ...r,
-                invoiceNote: nextDoc.invoiceNote ?? '',
-                doc: {
-                  ...r.doc,
-                  invoiceNote: nextDoc.invoiceNote ?? '',
-                  qrCodes: nextDoc.qrCodes || r.doc?.qrCodes,
-                },
-              }
-            : r
-        )
+      ? company.receiptLog.map((r) => {
+          if (target && r.clientId === target.id && r.month === month) {
+            const rec = updatedClientForSync
+              ? getOrComputeMonthlyRecord(updatedClientForSync, month)
+              : undefined;
+            return {
+              ...r,
+              softwareCharges:
+                rec?.softwareCharges ?? effectiveNextDoc.softwareCharges,
+              whatsappBillingType:
+                rec?.whatsappBillingType ??
+                effectiveNextDoc.whatsappBillingType,
+              whatsappRate: rec?.whatsappRate ?? effectiveNextDoc.whatsappRate,
+              whatsappMessages:
+                rec?.whatsappMessages ?? effectiveNextDoc.whatsappMessages,
+              whatsappCharges:
+                rec?.whatsappCharges ?? effectiveNextDoc.whatsappCharges,
+              chatbotCharges:
+                rec?.chatbotCharges ?? effectiveNextDoc.chatbotCharges,
+              previousDues: rec?.previousDues ?? effectiveNextDoc.previousDues,
+              currentMonthTotal: rec?.currentMonthTotal ?? r.currentMonthTotal,
+              totalAmount: rec?.totalAmount ?? r.totalAmount,
+              amountPaid: rec?.amountPaid ?? effectiveNextDoc.amountPaid,
+              remainingDues: rec?.remainingDues ?? r.remainingDues,
+              status: rec?.status ?? effectiveNextDoc.status,
+              invoiceNote: effectiveNextDoc.invoiceNote ?? '',
+              doc: {
+                ...r.doc,
+                ...effectiveNextDoc,
+                invoiceNote: effectiveNextDoc.invoiceNote ?? '',
+                qrCodes: effectiveNextDoc.qrCodes || r.doc?.qrCodes,
+              },
+            };
+          }
+          return r;
+        })
       : company.receiptLog;
 
     const updatedCompanyForSync: CompanyProfile = {
       ...company,
       defaultInvoiceNote: noteChanged
-        ? nextDoc.invoiceNote ?? ''
+        ? effectiveNextDoc.invoiceNote ?? ''
         : company.defaultInvoiceNote,
       qrCodes:
-        qrsChanged && nextDoc.qrCodes
-          ? nextDoc.qrCodes
+        qrsChanged && effectiveNextDoc.qrCodes
+          ? effectiveNextDoc.qrCodes
           : company.qrCodes,
       qrCodeDataUrl:
-        qrsChanged && nextDoc.qrCodes?.[0]?.dataUrl
-          ? nextDoc.qrCodes[0].dataUrl
+        qrsChanged && effectiveNextDoc.qrCodes?.[0]?.dataUrl
+          ? effectiveNextDoc.qrCodes[0].dataUrl
           : company.qrCodeDataUrl,
       receiptLog: updatedReceiptLog,
     };
@@ -674,6 +787,21 @@ export default function App() {
       },
     };
 
+    const resolvedWhatsappLabel =
+      billingType === 'per_month' && docData.whatsappLabel?.includes('(')
+        ? 'WhatsApp Charges'
+        : docData.whatsappLabel ||
+          (billingType === 'per_month'
+            ? 'WhatsApp Charges'
+            : `WhatsApp Charges (${whatsappRate} × ${whatsappMessages.toLocaleString()})`);
+
+    const finalDocData: InvoiceEditableDocument = {
+      ...docData,
+      whatsappBillingType: billingType,
+      whatsappCharges,
+      whatsappLabel: resolvedWhatsappLabel,
+    };
+
     const savedReceiptItem: GeneratedReceiptItem = {
       id: `inv-log-${Date.now()}-${target.id}`,
       clientId: target.id,
@@ -703,7 +831,7 @@ export default function App() {
         timeStyle: 'short',
       }),
       invoiceNote: docData.invoiceNote,
-      doc: docData,
+      doc: finalDocData,
     };
 
     const existingLog = (company.receiptLog || []).filter(
@@ -771,7 +899,16 @@ export default function App() {
     if (!target) return;
 
     const currentRec = getOrComputeMonthlyRecord(target, month);
-    const whatsappCharges = Math.round(whatsappRate * whatsappMessages);
+    const billingType =
+      target.whatsappBillingType ||
+      currentRec.whatsappBillingType ||
+      'per_message';
+    const whatsappCharges =
+      billingType === 'per_month'
+        ? Number(target.whatsappCharges) ||
+          Number(currentRec.whatsappCharges) ||
+          (whatsappRate > 0 ? whatsappRate : 0)
+        : Math.round(whatsappRate * whatsappMessages);
     const currentMonthTotal =
       softwareCharges + whatsappCharges + chatbotCharges;
     const totalAmount = currentMonthTotal + currentRec.previousDues;
@@ -799,6 +936,7 @@ export default function App() {
     const updatedClient: ClientEntity = {
       ...target,
       softwareCharges,
+      whatsappBillingType: billingType,
       whatsappRate,
       whatsappMessages,
       whatsappCharges,
@@ -808,6 +946,7 @@ export default function App() {
         [month]: {
           ...currentRec,
           softwareCharges,
+          whatsappBillingType: billingType,
           whatsappRate,
           whatsappMessages,
           whatsappCharges,
@@ -857,7 +996,16 @@ export default function App() {
     if (!target) return;
 
     const currentRec = getOrComputeMonthlyRecord(target, month);
-    const whatsappCharges = Math.round(whatsappRate * whatsappMessages);
+    const billingType =
+      target.whatsappBillingType ||
+      currentRec.whatsappBillingType ||
+      'per_message';
+    const whatsappCharges =
+      billingType === 'per_month'
+        ? Number(target.whatsappCharges) ||
+          Number(currentRec.whatsappCharges) ||
+          (whatsappRate > 0 ? whatsappRate : 0)
+        : Math.round(whatsappRate * whatsappMessages);
     const currentMonthTotal =
       softwareCharges + whatsappCharges + chatbotCharges;
     const totalAmount = currentMonthTotal + currentRec.previousDues;
@@ -872,6 +1020,7 @@ export default function App() {
     const updatedClient: ClientEntity = {
       ...target,
       softwareCharges,
+      whatsappBillingType: billingType,
       whatsappRate,
       whatsappMessages,
       whatsappCharges,
@@ -881,6 +1030,7 @@ export default function App() {
         [month]: {
           ...currentRec,
           softwareCharges,
+          whatsappBillingType: billingType,
           whatsappRate,
           whatsappMessages,
           whatsappCharges,
@@ -911,6 +1061,7 @@ export default function App() {
       invoiceDate: docData.invoiceDate,
       dueDate: docData.dueDate,
       softwareCharges,
+      whatsappBillingType: billingType,
       whatsappRate,
       whatsappMessages,
       whatsappCharges,
@@ -925,6 +1076,7 @@ export default function App() {
         dateStyle: 'medium',
         timeStyle: 'short',
       }),
+      invoiceNote: docData.invoiceNote,
       doc: docData,
     };
 

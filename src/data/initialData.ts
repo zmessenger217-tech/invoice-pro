@@ -220,15 +220,24 @@ export function getOrComputeMonthlyRecord(
       : existing?.previousDuesLabel || `Previous Dues (${prevMonth})`;
 
   if (existing) {
+    const rawRate = Number(existing.whatsappRate) || 0;
+    const rawMessages = Number(existing.whatsappMessages) || 0;
+    const computedFromPerMsg = Math.round(rawRate * rawMessages);
+    const savedDirectWhatsapp = Number(existing.whatsappCharges) || 0;
     const billingType =
-      existing.whatsappBillingType ?? client.whatsappBillingType ?? 'per_message';
+      existing.whatsappBillingType ??
+      client.whatsappBillingType ??
+      (savedDirectWhatsapp > 0 && computedFromPerMsg === 0
+        ? 'per_month'
+        : 'per_message');
     const whatsappCharges =
       billingType === 'per_month'
-        ? Number(existing.whatsappCharges) || 0
-        : Math.round(
-            (Number(existing.whatsappRate) || 0) *
-              (Number(existing.whatsappMessages) || 0)
-          );
+        ? savedDirectWhatsapp > 0
+          ? savedDirectWhatsapp
+          : computedFromPerMsg
+        : computedFromPerMsg > 0
+        ? computedFromPerMsg
+        : savedDirectWhatsapp;
     const currentMonthTotal =
       (Number(existing.softwareCharges) || 0) +
       whatsappCharges +
@@ -271,21 +280,40 @@ export function getOrComputeMonthlyRecord(
       // Always ensure invoiceDate and dueDate align with the selected month
       invoiceDate: getIssueDateForMonth(month, existing.invoiceDate),
       dueDate: getDueDateForMonth(month, existing.dueDate),
-      invoiceNote: existing.invoiceNote ?? client.invoiceNote,
     };
   }
 
   // Pre-fill from the default charges and WhatsApp rate/messages entered when adding the school
-  const billingType = client.whatsappBillingType || 'per_message';
-  const softwareCharges = client.softwareEnabled ? client.softwareCharges : 0;
-  const whatsappRate = client.whatsappEnabled ? client.whatsappRate : 0;
-  const whatsappMessages = client.whatsappEnabled ? client.whatsappMessages : 0;
+  const softwareCharges = client.softwareEnabled
+    ? Number(client.softwareCharges) || 0
+    : 0;
+  const whatsappRate = client.whatsappEnabled
+    ? Number(client.whatsappRate) || 0
+    : 0;
+  const whatsappMessages = client.whatsappEnabled
+    ? Number(client.whatsappMessages) || 0
+    : 0;
+  const computedClientPerMsg = Math.round(whatsappRate * whatsappMessages);
+  const savedClientWhatsapp = client.whatsappEnabled
+    ? Number(client.whatsappCharges) || 0
+    : 0;
+  const billingType =
+    client.whatsappBillingType ||
+    (savedClientWhatsapp > 0 && computedClientPerMsg === 0
+      ? 'per_month'
+      : 'per_message');
   const whatsappCharges = client.whatsappEnabled
     ? billingType === 'per_month'
-      ? client.whatsappCharges
-      : Math.round(whatsappRate * whatsappMessages)
+      ? savedClientWhatsapp > 0
+        ? savedClientWhatsapp
+        : computedClientPerMsg
+      : computedClientPerMsg > 0
+      ? computedClientPerMsg
+      : savedClientWhatsapp
     : 0;
-  const chatbotCharges = client.chatbotEnabled ? client.chatbotCharges : 0;
+  const chatbotCharges = client.chatbotEnabled
+    ? Number(client.chatbotCharges) || 0
+    : 0;
   const currentMonthTotal =
     softwareCharges + whatsappCharges + chatbotCharges;
   const previousDues = carriedDues;
@@ -312,7 +340,6 @@ export function getOrComputeMonthlyRecord(
     invoiceNumber: `INV-${numSuffix}`,
     invoiceDate: getIssueDateForMonth(month),
     dueDate: getDueDateForMonth(month),
-    invoiceNote: client.invoiceNote,
     payments: [],
     partnerId: client.partnerId,
     partnerName: client.partnerName,

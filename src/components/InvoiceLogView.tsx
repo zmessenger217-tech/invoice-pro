@@ -410,7 +410,7 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
                     Software Charges
                   </th>
                   <th className="py-3 px-3 border border-slate-200">
-                    WhatsApp (Rate × Msgs)
+                    WhatsApp Charges
                   </th>
                   <th className="py-3 px-3 text-right border border-slate-200 bg-purple-50/40 text-purple-900">
                     Chatbot Charges
@@ -467,13 +467,24 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
                         {formatCurrency(item.softwareCharges, currency)}
                       </td>
 
-                      {/* WhatsApp (Rate x Msgs) */}
+                      {/* WhatsApp Charges */}
                       <td className="py-3.5 px-3 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
-                        {item.whatsappRate} ×{' '}
-                        {item.whatsappMessages.toLocaleString()} ={' '}
-                        <span className="font-semibold text-slate-800">
-                          {formatCurrency(item.whatsappCharges, currency)}
-                        </span>
+                        {item.whatsappBillingType === 'per_month' ||
+                        (item.whatsappCharges > 0 &&
+                          item.whatsappRate === 0 &&
+                          item.whatsappMessages === 0) ? (
+                          <span className="font-semibold text-slate-800">
+                            {formatCurrency(item.whatsappCharges, currency)}
+                          </span>
+                        ) : (
+                          <>
+                            {item.whatsappRate} ×{' '}
+                            {item.whatsappMessages.toLocaleString()} ={' '}
+                            <span className="font-semibold text-slate-800">
+                              {formatCurrency(item.whatsappCharges, currency)}
+                            </span>
+                          </>
+                        )}
                       </td>
 
                       {/* Chatbot Charges */}

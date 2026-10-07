@@ -133,6 +133,14 @@
           "type": "boolean",
           "description": "Whether WhatsApp charges apply."
         },
+        "whatsappBillingType": {
+          "type": "string",
+          "description": "WhatsApp billing calculation mode (per_message or per_month).",
+          "enum": [
+            "per_message",
+            "per_month"
+          ]
+        },
         "whatsappRate": {
           "type": "number",
           "description": "Rate per WhatsApp message."

@@ -693,6 +693,9 @@ export function subscribeToWorkspaceRealtime(
         const firstRec = Object.values(records).find(
           (r) => r && typeof r === 'object'
         );
+        const hasPerMonthRec = Object.values(records).some(
+          (r) => r && typeof r === 'object' && r.whatsappBillingType === 'per_month'
+        );
         return {
           id: d.id,
           name: data.name,
@@ -704,7 +707,12 @@ export function subscribeToWorkspaceRealtime(
           softwareCharges: Number(data.softwareCharges) || 0,
           whatsappEnabled: Boolean(data.whatsappEnabled),
           whatsappBillingType:
-            firstRec?.whatsappBillingType === 'per_month'
+            data.whatsappBillingType === 'per_month' ||
+            firstRec?.whatsappBillingType === 'per_month' ||
+            hasPerMonthRec ||
+            (Number(data.whatsappCharges) > 0 &&
+              Number(data.whatsappRate) === 0 &&
+              Number(data.whatsappMessages) === 0)
               ? 'per_month'
               : 'per_message',
           whatsappRate: Number(data.whatsappRate) || 0,
@@ -879,6 +887,9 @@ export async function loadOrBootstrapWorkspace(
       const firstRec = Object.values(records).find(
         (r) => r && typeof r === 'object'
       );
+      const hasPerMonthRec = Object.values(records).some(
+        (r) => r && typeof r === 'object' && r.whatsappBillingType === 'per_month'
+      );
       return {
         id: d.id,
         name: data.name,
@@ -890,7 +901,12 @@ export async function loadOrBootstrapWorkspace(
         softwareCharges: Number(data.softwareCharges) || 0,
         whatsappEnabled: Boolean(data.whatsappEnabled),
         whatsappBillingType:
-          firstRec?.whatsappBillingType === 'per_month'
+          data.whatsappBillingType === 'per_month' ||
+          firstRec?.whatsappBillingType === 'per_month' ||
+          hasPerMonthRec ||
+          (Number(data.whatsappCharges) > 0 &&
+            Number(data.whatsappRate) === 0 &&
+            Number(data.whatsappMessages) === 0)
             ? 'per_month'
             : 'per_message',
         whatsappRate: Number(data.whatsappRate) || 0,
@@ -1077,6 +1093,10 @@ export async function syncClientToFirestore(
         softwareEnabled: Boolean(client.softwareEnabled),
         softwareCharges: Math.max(0, Number(client.softwareCharges) || 0),
         whatsappEnabled: Boolean(client.whatsappEnabled),
+        whatsappBillingType:
+          client.whatsappBillingType === 'per_month'
+            ? 'per_month'
+            : 'per_message',
         whatsappRate: Math.max(0, Number(client.whatsappRate) || 0),
         whatsappMessages: Math.max(0, Number(client.whatsappMessages) || 0),
         whatsappCharges: Math.max(0, Number(client.whatsappCharges) || 0),
@@ -1095,6 +1115,10 @@ export async function syncClientToFirestore(
         softwareEnabled: Boolean(client.softwareEnabled),
         softwareCharges: Math.max(0, Number(client.softwareCharges) || 0),
         whatsappEnabled: Boolean(client.whatsappEnabled),
+        whatsappBillingType:
+          client.whatsappBillingType === 'per_month'
+            ? 'per_month'
+            : 'per_message',
         whatsappRate: Math.max(0, Number(client.whatsappRate) || 0),
         whatsappMessages: Math.max(0, Number(client.whatsappMessages) || 0),
         whatsappCharges: Math.max(0, Number(client.whatsappCharges) || 0),

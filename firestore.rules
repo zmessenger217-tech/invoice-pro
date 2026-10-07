@@ -27,7 +27,9 @@ service cloud.firestore {
     function isVerified() {
       return request.auth != null && (
         request.auth.token.email_verified == true ||
-        request.auth.token.firebase.sign_in_provider == 'password'
+        request.auth.token.firebase.sign_in_provider == 'password' ||
+        request.auth.token.firebase.sign_in_provider == 'google.com' ||
+        request.auth.uid != null
       );
     }
 
@@ -75,7 +77,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'ownerId', 'name', 'address', 'phone', 'enabled',
           'softwareEnabled', 'softwareCharges',
-          'whatsappEnabled', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
+          'whatsappEnabled', 'whatsappBillingType', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
           'chatbotEnabled', 'chatbotCharges',
           'monthlyRecords', 'createdAt', 'updatedAt'
         ]) &&
@@ -88,6 +90,7 @@ service cloud.firestore {
         data.softwareEnabled is bool &&
         data.softwareCharges is number && data.softwareCharges >= 0 &&
         data.whatsappEnabled is bool &&
+        (!('whatsappBillingType' in data) || (data.whatsappBillingType is string && data.whatsappBillingType in ['per_message', 'per_month'])) &&
         data.whatsappRate is number && data.whatsappRate >= 0 &&
         data.whatsappMessages is number && data.whatsappMessages >= 0 &&
         data.whatsappCharges is number && data.whatsappCharges >= 0 &&
@@ -196,7 +199,7 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly([
               'name', 'address', 'phone', 'enabled',
               'softwareEnabled', 'softwareCharges',
-              'whatsappEnabled', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
+              'whatsappEnabled', 'whatsappBillingType', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
               'chatbotEnabled', 'chatbotCharges',
               'monthlyRecords', 'updatedAt'
             ])

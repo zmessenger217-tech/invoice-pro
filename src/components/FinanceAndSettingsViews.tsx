@@ -523,7 +523,8 @@ export const FinanceAndSettingsViews: React.FC<
             whatsappPay: Number(rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0),
             chatbotPay: Number(rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0),
             totalPay: Number(rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0),
-            schoolTotal: rec.currentMonthTotal,
+            schoolTotal: rec.totalAmount || rec.currentMonthTotal,
+            currentMonthTotal: rec.currentMonthTotal,
             schoolPaid: rec.amountPaid,
             schoolRemaining: rec.remainingDues,
             schoolStatus: rec.status,
@@ -543,6 +544,12 @@ export const FinanceAndSettingsViews: React.FC<
     const modalTotalSchoolRevenue = detailPartnerModal
       ? modalPartnerSchools.reduce((sum, s) => sum + s.schoolTotal, 0)
       : 0;
+    const modalTotalSchoolPaid = detailPartnerModal
+      ? modalPartnerSchools.reduce((sum, s) => sum + s.schoolPaid, 0)
+      : 0;
+    const modalTotalSchoolRemaining = detailPartnerModal
+      ? modalPartnerSchools.reduce((sum, s) => sum + s.schoolRemaining, 0)
+      : 0;
 
     return (
       <div className="space-y-6">
@@ -550,7 +557,7 @@ export const FinanceAndSettingsViews: React.FC<
           <div>
             <h1 className="text-xl font-bold text-slate-900">Partners</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Manage partners, school service commissions, and monthly payouts for{' '}
+              Manage partners, school service commissions, customer remaining balances, and monthly payouts for{' '}
               <strong>{selectedMonth}</strong>.
             </p>
           </div>
@@ -567,38 +574,53 @@ export const FinanceAndSettingsViews: React.FC<
           </select>
         </div>
 
-        {/* Partner Revenue Summary Blocks */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
+        {/* Partner Revenue & Customer Remaining Summary Blocks */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="text-xs font-medium text-slate-500">
               Total {term.plural} Revenue ({selectedMonth})
             </div>
-            <div className="text-2xl font-bold text-slate-900 font-mono tabular-nums mt-1.5">
+            <div className="text-xl font-bold text-slate-900 font-mono tabular-nums mt-1">
               {formatCurrency(monthlyRevenue, currency)}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              Paid: {formatCurrency(totalCollected, currency)}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-indigo-200 bg-indigo-50/20 p-5">
+          <div className="bg-white rounded-xl border border-rose-200 bg-rose-50/20 p-4">
+            <div className="text-xs font-medium text-rose-900">
+              Remaining Amount from {term.plural}
+            </div>
+            <div className="text-xl font-bold text-rose-600 font-mono tabular-nums mt-1">
+              {formatCurrency(totalOutstandingDues, currency)}
+            </div>
+            <div className="text-[11px] text-rose-500 mt-0.5">
+              Pending dues to be received from customers
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-indigo-200 bg-indigo-50/20 p-4">
             <div className="text-xs font-medium text-indigo-900">
               Partner Payments ({selectedMonth})
             </div>
-            <div className="text-2xl font-bold text-indigo-600 font-mono tabular-nums mt-1.5">
+            <div className="text-xl font-bold text-indigo-600 font-mono tabular-nums mt-1">
               {formatCurrency(partnerPayoutsTotal, currency)}
             </div>
-            <div className="text-[11px] text-indigo-500 mt-1">
-              Total payouts across all partner-linked {term.plural.toLowerCase()}
+            <div className="text-[11px] text-indigo-500 mt-0.5">
+              Commission across partner-linked {term.plural.toLowerCase()}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-5">
+          <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-4">
             <div className="text-xs font-medium text-slate-600">
-              Total Revenue After Partner Payments
+              Net Revenue After Partners
             </div>
-            <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
+            <div className="text-xl font-bold text-emerald-600 font-mono tabular-nums mt-1">
               {formatCurrency(remainingAfterPartners, currency)}
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">
-              Net profit retained by company after partner payouts
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Net profit retained by company
             </div>
           </div>
         </div>
@@ -690,7 +712,7 @@ export const FinanceAndSettingsViews: React.FC<
                 Partners List ({selectedMonth})
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Shows all partners, their linked {term.plural.toLowerCase()} with exact payment cuts, and service details.
+                Shows all partners, their linked {term.plural.toLowerCase()}, customer remaining amounts, and payment cuts.
               </p>
             </div>
             <span className="px-3 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
@@ -708,6 +730,18 @@ export const FinanceAndSettingsViews: React.FC<
                 const partnerSchools = getPartnerSchoolsData(p.id);
                 const schoolPayoutsSum = partnerSchools.reduce(
                   (sum, s) => sum + s.totalPay,
+                  0
+                );
+                const schoolRemainingSum = partnerSchools.reduce(
+                  (sum, s) => sum + s.schoolRemaining,
+                  0
+                );
+                const schoolPaidSum = partnerSchools.reduce(
+                  (sum, s) => sum + s.schoolPaid,
+                  0
+                );
+                const schoolBilledSum = partnerSchools.reduce(
+                  (sum, s) => sum + s.schoolTotal,
                   0
                 );
                 const finalPayout =
@@ -732,14 +766,40 @@ export const FinanceAndSettingsViews: React.FC<
                               ({p.phone})
                             </span>
                           </div>
-                          <div className="text-xs text-slate-500 mt-0.5">
-                            Linked to{' '}
-                            <strong>
-                              {partnerSchools.length}{' '}
-                              {partnerSchools.length === 1
-                                ? term.singular
-                                : term.plural}
-                            </strong>
+                          <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                            <span>
+                              Linked to{' '}
+                              <strong>
+                                {partnerSchools.length}{' '}
+                                {partnerSchools.length === 1
+                                  ? term.singular
+                                  : term.plural}
+                              </strong>
+                            </span>
+                            {partnerSchools.length > 0 && (
+                              <>
+                                <span className="text-slate-300">·</span>
+                                <span>
+                                  Billed:{' '}
+                                  <strong className="font-mono text-slate-800">
+                                    {formatCurrency(schoolBilledSum, currency)}
+                                  </strong>
+                                </span>
+                                <span className="text-slate-300">·</span>
+                                <span>
+                                  Remaining Amount:{' '}
+                                  <strong
+                                    className={`font-mono ${
+                                      schoolRemainingSum > 0
+                                        ? 'text-rose-600 font-bold'
+                                        : 'text-emerald-600'
+                                    }`}
+                                  >
+                                    {formatCurrency(schoolRemainingSum, currency)}
+                                  </strong>
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -774,7 +834,7 @@ export const FinanceAndSettingsViews: React.FC<
                           type="button"
                           onClick={() => setDetailPartnerModal(p)}
                           className="px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
-                          title="See detailed breakdown of service charges paid to this partner"
+                          title="See detailed breakdown of service charges and remaining customer balance"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           <span>See Details</span>
@@ -808,16 +868,30 @@ export const FinanceAndSettingsViews: React.FC<
                       </div>
                     </div>
 
-                    {/* Assigned Schools by School Name + How Much Paid from Each School */}
+                    {/* Assigned Schools by School Name + Remaining Customer Amount + How Much Paid from Each School */}
                     <div className="bg-slate-50/80 rounded-xl p-3 border border-slate-200/80 space-y-2">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between flex-wrap gap-2">
                         <span>
-                          {term.plural} assigned to {p.name} &amp; Payout from each {term.singular.toLowerCase()}:
+                          {term.plural} assigned to {p.name} &amp; Remaining Amount / Payout:
                         </span>
                         {partnerSchools.length > 0 && (
-                          <span className="font-mono text-indigo-600 font-semibold lowercase">
-                            {formatCurrency(schoolPayoutsSum, currency)} total from {partnerSchools.length} {partnerSchools.length === 1 ? term.singular.toLowerCase() : term.plural.toLowerCase()}
-                          </span>
+                          <div className="flex items-center gap-3 font-mono text-xs">
+                            <span className="text-slate-600">
+                              Total Remaining:{' '}
+                              <strong
+                                className={
+                                  schoolRemainingSum > 0
+                                    ? 'text-rose-600 font-bold'
+                                    : 'text-emerald-600'
+                                }
+                              >
+                                {formatCurrency(schoolRemainingSum, currency)}
+                              </strong>
+                            </span>
+                            <span className="text-indigo-600 font-semibold">
+                              {formatCurrency(schoolPayoutsSum, currency)} payout
+                            </span>
+                          </div>
                         )}
                       </div>
 
@@ -832,40 +906,64 @@ export const FinanceAndSettingsViews: React.FC<
                               key={item.client.id}
                               className="bg-white p-3 rounded-lg border border-slate-200 flex items-center justify-between gap-3 shadow-2xs"
                             >
-                              <div className="min-w-0">
-                                <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-1.5">
-                                  <span>🏫 {item.client.name}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-1.5 justify-between">
+                                  <span className="truncate">🏫 {item.client.name}</span>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0 ${
+                                      item.schoolStatus === 'Paid'
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        : item.schoolStatus === 'Partially Paid'
+                                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                        : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    }`}
+                                  >
+                                    {item.schoolStatus}
+                                  </span>
                                 </div>
-                                <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mt-2 bg-slate-50/70 p-2 rounded-md border border-slate-100 text-[11px]">
+                                  <div>
+                                    <div className="text-[10px] text-slate-400">Total Billed</div>
+                                    <div className="font-mono font-semibold text-slate-800">
+                                      {formatCurrency(item.schoolTotal, currency)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[10px] text-slate-400">Paid by Customer</div>
+                                    <div className="font-mono font-semibold text-emerald-700">
+                                      {formatCurrency(item.schoolPaid, currency)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[10px] text-slate-400">Remaining Amount</div>
+                                    <div
+                                      className={`font-mono font-bold ${
+                                        item.schoolRemaining > 0
+                                          ? 'text-rose-600'
+                                          : 'text-emerald-600'
+                                      }`}
+                                    >
+                                      {formatCurrency(item.schoolRemaining, currency)}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2 mt-1.5">
                                   <span>
-                                    Payout from this {term.singular.toLowerCase()}:{' '}
+                                    Payout to partner:{' '}
                                     <strong className="text-indigo-600 font-mono">
                                       {formatCurrency(item.totalPay, currency)}
                                     </strong>
                                   </span>
-                                  <span
-                                    className={`px-1.5 py-0.2 rounded text-[9px] font-semibold ${
-                                      item.schoolStatus === 'Paid'
-                                        ? 'bg-emerald-50 text-emerald-700'
-                                        : 'bg-amber-50 text-amber-700'
-                                    }`}
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailPartnerModal(p)}
+                                    className="px-2 py-0.5 text-[11px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-colors shrink-0 flex items-center gap-1"
                                   >
-                                    {term.singular}: {item.schoolStatus}
-                                  </span>
-                                </div>
-                                <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-                                  Software: {formatCurrency(item.softwarePay, currency)} · WhatsApp: {formatCurrency(item.whatsappPay, currency)} · Chatbot: {formatCurrency(item.chatbotPay, currency)}
+                                    <Eye className="w-3 h-3" />
+                                    <span>Detail</span>
+                                  </button>
                                 </div>
                               </div>
-
-                              <button
-                                type="button"
-                                onClick={() => setDetailPartnerModal(p)}
-                                className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors shrink-0 flex items-center gap-1"
-                              >
-                                <Eye className="w-3 h-3" />
-                                <span>Detail</span>
-                              </button>
                             </div>
                           ))}
                         </div>
@@ -883,6 +981,12 @@ export const FinanceAndSettingsViews: React.FC<
               <span className="text-slate-500">Monthly Revenue: </span>
               <span className="font-mono font-bold text-slate-900">
                 {formatCurrency(monthlyRevenue, currency)}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-500">Total Customer Remaining: </span>
+              <span className="font-mono font-bold text-rose-600">
+                {formatCurrency(totalOutstandingDues, currency)}
               </span>
             </div>
             <div>
@@ -933,12 +1037,12 @@ export const FinanceAndSettingsViews: React.FC<
               </div>
 
               {/* Top Summary Metrics for this Partner */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs">
                   <div className="text-slate-600 font-medium">
-                    Total Partner Payout
+                    Partner Payout
                   </div>
-                  <div className="text-xl font-bold text-indigo-700 font-mono tabular-nums mt-1">
+                  <div className="text-lg font-bold text-indigo-700 font-mono tabular-nums mt-1">
                     {formatCurrency(modalTotalPayout, currency)}
                   </div>
                   <div className="text-[10px] text-indigo-500 mt-0.5">
@@ -946,27 +1050,39 @@ export const FinanceAndSettingsViews: React.FC<
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
                   <div className="text-slate-600 font-medium">
-                    Linked {term.plural}
+                    Total Billed
                   </div>
-                  <div className="text-xl font-bold text-slate-900 font-mono tabular-nums mt-1">
-                    {modalPartnerSchools.length}
+                  <div className="text-lg font-bold text-slate-900 font-mono tabular-nums mt-1">
+                    {formatCurrency(modalTotalSchoolRevenue, currency)}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-0.5">
-                    Assigned institutions
+                    {modalPartnerSchools.length} {term.plural}
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
                   <div className="text-emerald-800 font-medium">
-                    School Revenue Generated
+                    Customer Paid
                   </div>
-                  <div className="text-xl font-bold text-emerald-700 font-mono tabular-nums mt-1">
-                    {formatCurrency(modalTotalSchoolRevenue, currency)}
+                  <div className="text-lg font-bold text-emerald-700 font-mono tabular-nums mt-1">
+                    {formatCurrency(modalTotalSchoolPaid, currency)}
                   </div>
                   <div className="text-[10px] text-emerald-600 mt-0.5">
-                    Net retained: {formatCurrency(Math.max(0, modalTotalSchoolRevenue - modalTotalPayout), currency)}
+                    Received
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs">
+                  <div className="text-rose-800 font-medium">
+                    Remaining Amount
+                  </div>
+                  <div className="text-lg font-bold text-rose-600 font-mono tabular-nums mt-1">
+                    {formatCurrency(modalTotalSchoolRemaining, currency)}
+                  </div>
+                  <div className="text-[10px] text-rose-500 mt-0.5">
+                    Customer balance
                   </div>
                 </div>
               </div>
@@ -974,7 +1090,7 @@ export const FinanceAndSettingsViews: React.FC<
               {/* Service Charges Breakdown by School */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Itemized Service Charges Breakdown by {term.singular}
+                  Itemized Service Charges &amp; Remaining Amount Breakdown by {term.singular}
                 </h4>
 
                 {modalPartnerSchools.length === 0 ? (
@@ -996,7 +1112,9 @@ export const FinanceAndSettingsViews: React.FC<
                               className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                                 item.schoolStatus === 'Paid'
                                   ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-amber-100 text-amber-800'
+                                  : item.schoolStatus === 'Partially Paid'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
                               }`}
                             >
                               {term.singular} Status: {item.schoolStatus}
@@ -1015,6 +1133,34 @@ export const FinanceAndSettingsViews: React.FC<
                           <div className="text-sm font-bold text-indigo-600 font-mono">
                             {formatCurrency(item.totalPay, currency)}
                           </div>
+                        </div>
+                      </div>
+
+                      {/* Customer Dues & Payment Status Strip */}
+                      <div className="px-4 py-2.5 bg-slate-100/60 border-b border-slate-200 grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">Total Charged to Customer</span>
+                          <span className="font-mono font-bold text-slate-900">
+                            {formatCurrency(item.schoolTotal, currency)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">Amount Paid by Customer</span>
+                          <span className="font-mono font-bold text-emerald-700">
+                            {formatCurrency(item.schoolPaid, currency)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">Remaining Amount (Customer Dues)</span>
+                          <span
+                            className={`font-mono font-bold ${
+                              item.schoolRemaining > 0
+                                ? 'text-rose-600'
+                                : 'text-emerald-600'
+                            }`}
+                          >
+                            {formatCurrency(item.schoolRemaining, currency)}
+                          </span>
                         </div>
                       </div>
 
@@ -1060,7 +1206,9 @@ export const FinanceAndSettingsViews: React.FC<
                               <td className="py-2.5 px-4 font-medium text-slate-800">
                                 <div>WhatsApp Communication</div>
                                 <div className="text-[10px] text-slate-400 font-mono">
-                                  {item.record.whatsappRate} × {item.record.whatsappMessages.toLocaleString()} msgs
+                                  {item.record.whatsappBillingType === 'per_month'
+                                    ? 'Flat Monthly Charges'
+                                    : `${item.record.whatsappRate} × ${item.record.whatsappMessages.toLocaleString()} msgs`}
                                 </div>
                               </td>
                               <td className="py-2.5 px-4 text-right font-mono text-slate-700">

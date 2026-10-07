@@ -1278,7 +1278,12 @@ export const InvoicePreviewAndEditor: React.FC<
                       </span>
                       <input
                         type="text"
-                        value={invoiceDoc.whatsappLabel}
+                        value={
+                          invoiceDoc.whatsappBillingType === 'per_month' &&
+                          invoiceDoc.whatsappLabel?.includes('(')
+                            ? 'WhatsApp Charges'
+                            : invoiceDoc.whatsappLabel || 'WhatsApp Charges'
+                        }
                         onChange={(e) =>
                           updateField('whatsappLabel', e.target.value)
                         }

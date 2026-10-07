@@ -294,7 +294,14 @@ export const ReceiptLogView: React.FC<ReceiptLogViewProps> = ({
                           Software: <strong>{formatCurrency(r.softwareCharges, currency)}</strong>
                         </div>
                         <div>
-                          WhatsApp ({r.whatsappRate}×{r.whatsappMessages.toLocaleString()}):{' '}
+                          WhatsApp
+                          {r.whatsappBillingType === 'per_month' ||
+                          (r.whatsappCharges > 0 &&
+                            r.whatsappRate === 0 &&
+                            r.whatsappMessages === 0)
+                            ? ''
+                            : ` (${r.whatsappRate}×${r.whatsappMessages.toLocaleString()})`}
+                          :{' '}
                           <strong>{formatCurrency(r.whatsappCharges, currency)}</strong>
                         </div>
                         {r.chatbotCharges > 0 && (

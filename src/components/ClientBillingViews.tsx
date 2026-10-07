@@ -1385,7 +1385,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                 <thead>
                   <tr className="bg-slate-50/90 text-[11px] font-semibold text-slate-600">
                     <th className="py-3 px-3.5 border border-slate-200">{term.singular} Name</th>
-                    <th className="py-3 px-3 border border-slate-200">WhatsApp (Rate × Msgs)</th>
+                    <th className="py-3 px-3 border border-slate-200">WhatsApp Charges</th>
                     <th className="py-3 px-3 text-right border border-slate-200">Prev. Dues</th>
                     <th className="py-3 px-3 text-right border border-slate-200">Total Amount</th>
                     <th className="py-3 px-3 text-right border border-slate-200">Paid</th>
@@ -1414,10 +1414,23 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           {client.phone}
                         </div>
                       </td>
-                      <td className="py-3.5 px-3 font-mono text-slate-600 border border-slate-200">
-                        {record.whatsappRate} ×{' '}
-                        {record.whatsappMessages.toLocaleString()} ={' '}
-                        {formatCurrency(record.whatsappCharges, currency)}
+                      <td className="py-3.5 px-3 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
+                        {record.whatsappBillingType === 'per_month' ||
+                        (record.whatsappCharges > 0 &&
+                          record.whatsappRate === 0 &&
+                          record.whatsappMessages === 0) ? (
+                          <span className="font-semibold text-slate-800">
+                            {formatCurrency(record.whatsappCharges, currency)}
+                          </span>
+                        ) : (
+                          <>
+                            {record.whatsappRate} ×{' '}
+                            {record.whatsappMessages.toLocaleString()} ={' '}
+                            <span className="font-semibold text-slate-800">
+                              {formatCurrency(record.whatsappCharges, currency)}
+                            </span>
+                          </>
+                        )}
                       </td>
                       <td className="py-3.5 px-3 text-right font-mono tabular-nums text-slate-500 border border-slate-200">
                         {record.previousDues > 0 ? (
@@ -2298,7 +2311,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   <th className="py-3.5 px-4 border border-slate-200">{term.singular}</th>
                   <th className="py-3.5 px-4 border border-slate-200">Month</th>
                   <th className="py-3.5 px-4 text-right border border-slate-200 bg-blue-50/30 text-blue-900">Software Charges</th>
-                  <th className="py-3.5 px-4 border border-slate-200">WhatsApp (Rate × Msgs)</th>
+                  <th className="py-3.5 px-4 border border-slate-200">WhatsApp Charges</th>
                   <th className="py-3.5 px-4 text-right border border-slate-200 bg-purple-50/30 text-purple-900">Chatbot Charges</th>
                   <th className="py-3.5 px-4 text-right border border-slate-200 font-bold">Total Amount</th>
                   <th className="py-3.5 px-4 border border-slate-200">Status</th>
@@ -2334,12 +2347,12 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                         {formatCurrency(rec.softwareCharges, currency)}
                       </td>
                       <td className="py-3.5 px-4 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
-                        {rec.whatsappBillingType === 'per_month' ? (
+                        {rec.whatsappBillingType === 'per_month' ||
+                        (rec.whatsappCharges > 0 &&
+                          rec.whatsappRate === 0 &&
+                          rec.whatsappMessages === 0) ? (
                           <span className="font-semibold text-slate-800">
-                            {formatCurrency(rec.whatsappCharges, currency)}{' '}
-                            <span className="text-[11px] font-normal text-slate-400">
-                              (Monthly)
-                            </span>
+                            {formatCurrency(rec.whatsappCharges, currency)}
                           </span>
                         ) : (
                           <>
