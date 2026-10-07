@@ -31,6 +31,10 @@
   background: rgba(148, 163, 184, 0.55);
 }
 
+#invoice-print-container {
+  display: none;
+}
+
 @media print {
   @page {
     size: A4 landscape;
@@ -38,6 +42,20 @@
   }
 
   body {
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body.printing-invoice > *:not(#invoice-print-container) {
+    display: none !important;
+  }
+
+  body.printing-invoice #invoice-print-container {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
     background: #ffffff !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;

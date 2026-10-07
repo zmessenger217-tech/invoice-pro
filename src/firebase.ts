@@ -143,6 +143,30 @@ function clampString(
   return clean.slice(0, maxLen);
 }
 
+/**
+ * Recursively strips keys with `undefined` values so Firestore setDoc/updateDoc never fails
+ * with "Unsupported field value: undefined".
+ */
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)) as unknown as T;
+  }
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    Object.prototype.toString.call(value) === '[object Object]'
+  ) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v !== undefined) {
+        out[k] = stripUndefinedDeep(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
+}
+
 export function sanitizeId(rawId: string): string {
   const cleaned = rawId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 128);
   return cleaned || 'item-1';
@@ -150,12 +174,11 @@ export function sanitizeId(rawId: string): string {
 
 export async function compressImageDataUrl(
   dataUrl: string | undefined,
-  maxDim = 180
+  maxDim = 220
 ): Promise<string | undefined> {
   if (!dataUrl) return undefined;
   if (dataUrl === DEFAULT_BRAND_LOGO_DATA_URL) return undefined;
   if (!dataUrl.startsWith('data:image/')) return undefined;
-  if (dataUrl.length <= 45000) return dataUrl;
 
   return new Promise((resolve) => {
     const img = new Image();
@@ -169,17 +192,23 @@ export async function compressImageDataUrl(
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          resolve(dataUrl.slice(0, 60000));
+          resolve(dataUrl.slice(0, 90000));
           return;
         }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        const compressed = canvas.toDataURL('image/png', 0.85);
-        resolve(compressed.length <= 80000 ? compressed : canvas.toDataURL('image/jpeg', 0.75));
+        const pngData = canvas.toDataURL('image/png');
+        if (pngData.length <= 95000) {
+          resolve(pngData);
+        } else {
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        }
       } catch {
-        resolve(undefined);
+        resolve(dataUrl.length <= 120000 ? dataUrl : undefined);
       }
     };
-    img.onerror = () => resolve(undefined);
+    img.onerror = () => resolve(dataUrl.length <= 120000 ? dataUrl : undefined);
     img.src = dataUrl;
   });
 }
@@ -189,66 +218,83 @@ function buildSettingsMap(company: CompanyProfile): Record<string, unknown> {
     company.logoDataUrl &&
     company.logoDataUrl.startsWith('data:image/') &&
     company.logoDataUrl !== DEFAULT_BRAND_LOGO_DATA_URL &&
-    company.logoDataUrl.length <= 120000
+    company.logoDataUrl.length <= 160000
       ? company.logoDataUrl
       : '';
 
   const customQr =
     company.qrCodeDataUrl &&
     company.qrCodeDataUrl.startsWith('data:image/') &&
-    company.qrCodeDataUrl.length <= 120000
+    company.qrCodeDataUrl.length <= 160000
       ? company.qrCodeDataUrl
       : '';
 
   const sanitizedQrCodes = Array.isArray(company.qrCodes)
-    ? company.qrCodes.slice(0, 8).map((qr) => ({
-        id: clampString(qr.id, 60, `qr-${Date.now()}`),
-        label: clampString(qr.label, 80, 'Scan to Pay'),
+    ? company.qrCodes.slice(0, 12).map((qr, idx) => ({
+        id: clampString(qr.id, 60, `qr-${idx + 1}`),
+        label: clampString(qr.label || qr.bankName, 80, 'Scan to Pay'),
+        bankName: clampString(qr.bankName || qr.label, 80, ''),
+        accountTitle: clampString(qr.accountTitle, 80, ''),
+        accountNumber: clampString(qr.accountNumber, 80, ''),
         dataUrl:
-          typeof qr.dataUrl === 'string' && qr.dataUrl.length <= 120000
+          typeof qr.dataUrl === 'string' && qr.dataUrl.length <= 160000
             ? qr.dataUrl
             : '',
       }))
     : [];
 
-  // Invoice & Receipt log stores generated invoices with itemized software and chatbot charges
+  // Invoice & Receipt log stores generated invoices with itemized software, chatbot charges, and invoiceNote
   const activeMonth =
     company.receiptLogMonth || getCurrentMonthLabel();
   const currentMonthReceipts = Array.isArray(company.receiptLog)
     ? company.receiptLog
         .slice(-200) // keep last 200 receipts
-        .map((r) => ({
-          id: clampString(r.id, 60, `rcp-${Date.now()}`),
-          clientId: clampString(r.clientId, 60, ''),
-          clientName: clampString(r.clientName, 120, 'Client'),
-          clientPhone: clampString(r.clientPhone || '', 40, ''),
-          invoiceNumber: clampString(r.invoiceNumber, 40, 'INV-001'),
-          month: clampString(r.month, 40, activeMonth),
-          invoiceDate: clampString(r.invoiceDate, 40, ''),
-          dueDate: clampString(r.dueDate, 40, ''),
-          softwareCharges: Number(r.softwareCharges) || 0,
-          whatsappRate: Number(r.whatsappRate) || 0,
-          whatsappMessages: Number(r.whatsappMessages) || 0,
-          whatsappCharges: Number(r.whatsappCharges) || 0,
-          chatbotCharges: Number(r.chatbotCharges) || 0,
-          previousDues: Number(r.previousDues) || 0,
-          currentMonthTotal: Number(r.currentMonthTotal) || 0,
-          totalAmount: Number(r.totalAmount) || 0,
-          amountPaid: Number(r.amountPaid) || 0,
-          remainingDues: Number(r.remainingDues) || 0,
-          status: r.status || 'Unpaid',
-          generatedAt: clampString(r.generatedAt, 60, ''),
-          doc: {
-            ...r.doc,
-            // strip large base64 from embedded doc to keep doc lightweight
-            logoDataUrl: undefined,
-            qrCodeDataUrl: undefined,
-            qrCodes: undefined,
-          },
-        }))
+        .map((r) => {
+          const noteStr = clampString(
+            r.invoiceNote ?? r.doc?.invoiceNote,
+            500,
+            ''
+          );
+          const rawDoc = (r.doc || {}) as unknown as Record<string, unknown>;
+          const {
+            logoDataUrl: _logo,
+            qrCodeDataUrl: _qr,
+            qrCodes: _qrs,
+            ...cleanDocRest
+          } = rawDoc;
+
+          return stripUndefinedDeep({
+            id: clampString(r.id, 60, `rcp-${Date.now()}`),
+            clientId: clampString(r.clientId, 60, ''),
+            clientName: clampString(r.clientName, 120, 'Client'),
+            clientPhone: clampString(r.clientPhone || '', 40, ''),
+            invoiceNumber: clampString(r.invoiceNumber, 40, 'INV-001'),
+            month: clampString(r.month, 40, activeMonth),
+            invoiceDate: clampString(r.invoiceDate, 40, ''),
+            dueDate: clampString(r.dueDate, 40, ''),
+            softwareCharges: Number(r.softwareCharges) || 0,
+            whatsappBillingType: r.whatsappBillingType || 'per_message',
+            whatsappRate: Number(r.whatsappRate) || 0,
+            whatsappMessages: Number(r.whatsappMessages) || 0,
+            whatsappCharges: Number(r.whatsappCharges) || 0,
+            chatbotCharges: Number(r.chatbotCharges) || 0,
+            previousDues: Number(r.previousDues) || 0,
+            currentMonthTotal: Number(r.currentMonthTotal) || 0,
+            totalAmount: Number(r.totalAmount) || 0,
+            amountPaid: Number(r.amountPaid) || 0,
+            remainingDues: Number(r.remainingDues) || 0,
+            status: r.status || 'Unpaid',
+            generatedAt: clampString(r.generatedAt, 60, ''),
+            invoiceNote: noteStr,
+            doc: {
+              ...cleanDocRest,
+              invoiceNote: noteStr,
+            },
+          });
+        })
     : [];
 
-  return {
+  return stripUndefinedDeep({
     customSingular: clampString(company.customSingular, 60, ''),
     customPlural: clampString(company.customPlural, 60, ''),
     showQrCode: company.showQrCode !== false,
@@ -261,6 +307,7 @@ function buildSettingsMap(company: CompanyProfile): Record<string, unknown> {
       200,
       'Official Monthly Software & Communication Billing Statement'
     ),
+    defaultInvoiceNote: clampString(company.defaultInvoiceNote, 500, ''),
     invoiceFooterThankYou: clampString(
       company.invoiceFooterThankYou,
       160,
@@ -287,7 +334,7 @@ function buildSettingsMap(company: CompanyProfile): Record<string, unknown> {
     qrCodes: sanitizedQrCodes,
     receiptLog: currentMonthReceipts,
     receiptLogMonth: activeMonth,
-  };
+  });
 }
 
 function parseWorkspaceDocToCompany(
@@ -330,9 +377,12 @@ function parseWorkspaceDocToCompany(
       : undefined;
 
   const savedQrCodes: PaymentQrCodeItem[] = Array.isArray(settings.qrCodes)
-    ? settings.qrCodes.map((q: any) => ({
-        id: String(q.id || `qr-${Date.now()}`),
-        label: String(q.label || 'Scan to Pay'),
+    ? settings.qrCodes.map((q: any, idx: number) => ({
+        id: String(q.id || `qr-${idx + 1}`),
+        label: String(q.label || q.bankName || 'Scan to Pay'),
+        bankName: q.bankName ? String(q.bankName) : String(q.label || ''),
+        accountTitle: q.accountTitle ? String(q.accountTitle) : undefined,
+        accountNumber: q.accountNumber ? String(q.accountNumber) : undefined,
         dataUrl: String(q.dataUrl || ''),
       }))
     : [];
@@ -341,10 +391,29 @@ function parseWorkspaceDocToCompany(
   const rawReceiptLog = Array.isArray(settings.receiptLog)
     ? settings.receiptLog
     : [];
-  // Purge receipts from previous months so start of new month has clean receipt log
-  const filteredReceiptLog: GeneratedReceiptItem[] = rawReceiptLog.filter(
-    (r: any) => r && r.month === activeMonth
-  );
+  const filteredReceiptLog: GeneratedReceiptItem[] = rawReceiptLog
+    .filter((r: any) => r && typeof r === 'object')
+    .map((r: any) => {
+      const note =
+        typeof r.invoiceNote === 'string'
+          ? r.invoiceNote
+          : typeof r.doc?.invoiceNote === 'string'
+          ? r.doc.invoiceNote
+          : '';
+      return {
+        ...r,
+        invoiceNote: note,
+        doc: r.doc
+          ? {
+              ...r.doc,
+              invoiceNote:
+                typeof r.doc.invoiceNote === 'string'
+                  ? r.doc.invoiceNote
+                  : note,
+            }
+          : r.doc,
+      };
+    });
 
   return {
     ...defaultCompany,
@@ -376,6 +445,8 @@ function parseWorkspaceDocToCompany(
       settings.invoiceHeaderNote ??
       defaultCompany.invoiceHeaderNote ??
       'Official Monthly Software & Communication Billing Statement',
+    defaultInvoiceNote:
+      settings.defaultInvoiceNote ?? defaultCompany.defaultInvoiceNote ?? '',
     invoiceFooterThankYou:
       settings.invoiceFooterThankYou ||
       defaultCompany.invoiceFooterThankYou ||
@@ -618,6 +689,10 @@ export function subscribeToWorkspaceRealtime(
     (snap) => {
       const list: ClientEntity[] = snap.docs.map((d) => {
         const data = d.data();
+        const records = (data.monthlyRecords || {}) as Record<string, any>;
+        const firstRec = Object.values(records).find(
+          (r) => r && typeof r === 'object'
+        );
         return {
           id: d.id,
           name: data.name,
@@ -628,11 +703,23 @@ export function subscribeToWorkspaceRealtime(
           softwareEnabled: Boolean(data.softwareEnabled),
           softwareCharges: Number(data.softwareCharges) || 0,
           whatsappEnabled: Boolean(data.whatsappEnabled),
+          whatsappBillingType:
+            firstRec?.whatsappBillingType === 'per_month'
+              ? 'per_month'
+              : 'per_message',
           whatsappRate: Number(data.whatsappRate) || 0,
           whatsappMessages: Number(data.whatsappMessages) || 0,
           whatsappCharges: Number(data.whatsappCharges) || 0,
           chatbotEnabled: Boolean(data.chatbotEnabled),
           chatbotCharges: Number(data.chatbotCharges) || 0,
+          partnerId: firstRec?.partnerId,
+          partnerName: firstRec?.partnerName,
+          partnerPaymentEnabled: firstRec?.partnerPaymentEnabled,
+          partnerSoftwareCharges: firstRec?.partnerSoftwareCharges,
+          partnerWhatsappCharges: firstRec?.partnerWhatsappCharges,
+          partnerChatbotCharges: firstRec?.partnerChatbotCharges,
+          partnerTotalPayment: firstRec?.partnerTotalPayment,
+          partnerNote: firstRec?.partnerNote,
           monthlyRecords: data.monthlyRecords || {},
         };
       });
@@ -788,6 +875,10 @@ export async function loadOrBootstrapWorkspace(
     );
     clients = cSnap.docs.map((d) => {
       const data = d.data();
+      const records = (data.monthlyRecords || {}) as Record<string, any>;
+      const firstRec = Object.values(records).find(
+        (r) => r && typeof r === 'object'
+      );
       return {
         id: d.id,
         name: data.name,
@@ -798,11 +889,23 @@ export async function loadOrBootstrapWorkspace(
         softwareEnabled: Boolean(data.softwareEnabled),
         softwareCharges: Number(data.softwareCharges) || 0,
         whatsappEnabled: Boolean(data.whatsappEnabled),
+        whatsappBillingType:
+          firstRec?.whatsappBillingType === 'per_month'
+            ? 'per_month'
+            : 'per_message',
         whatsappRate: Number(data.whatsappRate) || 0,
         whatsappMessages: Number(data.whatsappMessages) || 0,
         whatsappCharges: Number(data.whatsappCharges) || 0,
         chatbotEnabled: Boolean(data.chatbotEnabled),
         chatbotCharges: Number(data.chatbotCharges) || 0,
+        partnerId: firstRec?.partnerId,
+        partnerName: firstRec?.partnerName,
+        partnerPaymentEnabled: firstRec?.partnerPaymentEnabled,
+        partnerSoftwareCharges: firstRec?.partnerSoftwareCharges,
+        partnerWhatsappCharges: firstRec?.partnerWhatsappCharges,
+        partnerChatbotCharges: firstRec?.partnerChatbotCharges,
+        partnerTotalPayment: firstRec?.partnerTotalPayment,
+        partnerNote: firstRec?.partnerNote,
         monthlyRecords: data.monthlyRecords || {},
       };
     });
@@ -872,11 +975,27 @@ export async function syncWorkspaceProfileToFirestore(
   const ref = doc(db, 'workspaces', cleanUid);
 
   const compressedLogo = await compressImageDataUrl(company.logoDataUrl, 180);
-  const compressedQr = await compressImageDataUrl(company.qrCodeDataUrl, 220);
+  const compressedQr = await compressImageDataUrl(company.qrCodeDataUrl, 240);
+  const compressedQrCodes: PaymentQrCodeItem[] = Array.isArray(company.qrCodes)
+    ? await Promise.all(
+        company.qrCodes.map(async (qr) => {
+          const compUrl = qr.dataUrl
+            ? await compressImageDataUrl(qr.dataUrl, 240)
+            : '';
+          return {
+            ...qr,
+            dataUrl: compUrl || qr.dataUrl || '',
+          };
+        })
+      )
+    : [];
+
   const sanitizedCompany: CompanyProfile = {
     ...company,
     logoDataUrl: compressedLogo || company.logoDataUrl,
-    qrCodeDataUrl: compressedQr || company.qrCodeDataUrl,
+    qrCodeDataUrl:
+      compressedQrCodes[0]?.dataUrl || compressedQr || company.qrCodeDataUrl,
+    qrCodes: compressedQrCodes,
   };
 
   let snap;
@@ -945,6 +1064,8 @@ export async function syncClientToFirestore(
     }
   }
 
+  const cleanMonthlyRecords = stripUndefinedDeep(client.monthlyRecords || {});
+
   try {
     if (shouldCreate) {
       await setDoc(ref, {
@@ -961,7 +1082,7 @@ export async function syncClientToFirestore(
         whatsappCharges: Math.max(0, Number(client.whatsappCharges) || 0),
         chatbotEnabled: Boolean(client.chatbotEnabled),
         chatbotCharges: Math.max(0, Number(client.chatbotCharges) || 0),
-        monthlyRecords: client.monthlyRecords || {},
+        monthlyRecords: cleanMonthlyRecords,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -979,7 +1100,7 @@ export async function syncClientToFirestore(
         whatsappCharges: Math.max(0, Number(client.whatsappCharges) || 0),
         chatbotEnabled: Boolean(client.chatbotEnabled),
         chatbotCharges: Math.max(0, Number(client.chatbotCharges) || 0),
-        monthlyRecords: client.monthlyRecords || {},
+        monthlyRecords: cleanMonthlyRecords,
         updatedAt: serverTimestamp(),
       });
     }

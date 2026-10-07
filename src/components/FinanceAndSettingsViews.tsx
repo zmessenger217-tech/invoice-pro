@@ -26,6 +26,7 @@ import {
   getIssueDateForMonth,
   getOrComputeMonthlyRecord,
 } from '../data/initialData';
+import { compressImageDataUrl } from '../firebase';
 import {
   ActiveNavTab,
   ClientEntity,
@@ -194,6 +195,9 @@ export const FinanceAndSettingsViews: React.FC<
     company.invoiceHeaderNote ||
       'Official Monthly Software & Communication Billing Statement'
   );
+  const [compDefaultInvoiceNote, setCompDefaultInvoiceNote] = useState<string>(
+    company.defaultInvoiceNote || ''
+  );
   const [compFooterThankYou, setCompFooterThankYou] = useState<string>(
     company.invoiceFooterThankYou || 'Thank you for your business & trust!'
   );
@@ -205,6 +209,48 @@ export const FinanceAndSettingsViews: React.FC<
     company.invoiceTheme || 'royal-blue'
   );
   const [settingsSaved, setSettingsSaved] = useState(false);
+
+  // Sync settings form state whenever company profile updates from Firestore or Invoice Editor
+  useEffect(() => {
+    setCompName(company.name);
+    setCompTagline(company.tagline);
+    setCompPhone(company.phone);
+    setCompEmail(company.email);
+    setCompWebsite(company.website);
+    setCompCategory(company.category);
+    setCompLogo(company.logoDataUrl);
+    setCompQrCode(company.qrCodeDataUrl);
+    if (company.qrCodes && company.qrCodes.length > 0) {
+      setCompQrCodes(company.qrCodes);
+    } else if (company.qrCodeDataUrl) {
+      setCompQrCodes([
+        {
+          id: 'qr-1',
+          label: company.qrLabel || 'Primary Bank / Account',
+          bankName: company.qrLabel || 'Primary Bank',
+          dataUrl: company.qrCodeDataUrl,
+        },
+      ]);
+    }
+    setCompShowQr(company.showQrCode !== false);
+    setCompQrLabel(company.qrLabel || 'Scan to Pay');
+    setCompDefaultIssueDate(company.defaultIssueDate || '');
+    setCompDefaultDueDate(company.defaultDueDate || '');
+    setCompHeaderTitle(company.invoiceHeaderTitle || 'INVOICE');
+    setCompHeaderNote(
+      company.invoiceHeaderNote ||
+        'Official Monthly Software & Communication Billing Statement'
+    );
+    setCompDefaultInvoiceNote(company.defaultInvoiceNote || '');
+    setCompFooterThankYou(
+      company.invoiceFooterThankYou || 'Thank you for your business & trust!'
+    );
+    setCompFooterTerms(
+      company.invoiceFooterTerms ||
+        'Please remit payment by the due date via Bank Transfer or scan the QR code to pay online.'
+    );
+    setCompInvoiceTheme(company.invoiceTheme || 'royal-blue');
+  }, [company]);
 
   const monthExpensesList = expenses.filter((e) => e.month === selectedMonth);
   const partnerPayoutsTotal = partners.reduce((sum, p) => {
@@ -1406,22 +1452,11 @@ export const FinanceAndSettingsViews: React.FC<
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       if (typeof reader.result === 'string') {
-        setCompLogo(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleQrCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setCompQrCode(reader.result);
-        setCompShowQr(true);
+        const compressed =
+          (await compressImageDataUrl(reader.result, 180)) || reader.result;
+        setCompLogo(compressed);
       }
     };
     reader.readAsDataURL(file);
@@ -1434,7 +1469,7 @@ export const FinanceAndSettingsViews: React.FC<
           Company &amp; Invoice Settings
         </h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Change company logo, add payment QR code, configure default Issue Date &amp; Due Date, and customize Default Invoice Header &amp; Footer
+          Change company logo, add multiple payment QR codes for invoice footer, configure default Issue Date &amp; Due Date, and customize Default Invoice Header, Note &amp; Footer
         </p>
       </div>
 
@@ -1442,7 +1477,7 @@ export const FinanceAndSettingsViews: React.FC<
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-800 flex items-center gap-2">
           <Check className="w-4 h-4 text-emerald-600" />
           <span>
-            Settings saved! Logo, QR code, Issue/Due dates, and Default Invoice Header/Footer updated.
+            Settings saved! Logo, all QR codes, Issue/Due dates, and Default Invoice Header/Note/Footer updated.
           </span>
         </div>
       )}
@@ -1471,6 +1506,7 @@ export const FinanceAndSettingsViews: React.FC<
             defaultDueDate: compDefaultDueDate.trim(),
             invoiceHeaderTitle: compHeaderTitle.trim() || 'INVOICE',
             invoiceHeaderNote: compHeaderNote.trim(),
+            defaultInvoiceNote: compDefaultInvoiceNote.trim(),
             invoiceFooterThankYou:
               compFooterThankYou.trim() ||
               'Thank you for your business & trust!',
@@ -1802,16 +1838,30 @@ export const FinanceAndSettingsViews: React.FC<
                                 const file = e.target.files?.[0];
                                 if (!file) return;
                                 const reader = new FileReader();
-                                reader.onload = () => {
+                                reader.onload = async () => {
                                   if (typeof reader.result === 'string') {
-                                    const resultData = reader.result;
-                                    setCompQrCodes((prev) =>
-                                      prev.map((item, i) =>
+                                    const compressed =
+                                      (await compressImageDataUrl(
+                                        reader.result,
+                                        240
+                                      )) || reader.result;
+                                    setCompQrCodes((prev) => {
+                                      const next = prev.map((item, i) =>
                                         i === idx
-                                          ? { ...item, dataUrl: resultData }
+                                          ? { ...item, dataUrl: compressed }
                                           : item
-                                      )
-                                    );
+                                      );
+                                      onUpdateCompany({
+                                        ...company,
+                                        qrCodes: next,
+                                        qrCodeDataUrl:
+                                          next[0]?.dataUrl ||
+                                          company.qrCodeDataUrl,
+                                        showQrCode: true,
+                                      });
+                                      return next;
+                                    });
+                                    setCompShowQr(true);
                                   }
                                 };
                                 reader.readAsDataURL(file);
@@ -1918,6 +1968,19 @@ export const FinanceAndSettingsViews: React.FC<
               onChange={(e) => setCompHeaderNote(e.target.value)}
               placeholder="Official Monthly Software & Communication Billing Statement"
               className="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200"
+            />
+          </div>
+
+          <div>
+            <label className="block font-medium text-slate-700 mb-1.5">
+              Default Invoice Note / Special Instructions (Optional)
+            </label>
+            <textarea
+              rows={2}
+              value={compDefaultInvoiceNote}
+              onChange={(e) => setCompDefaultInvoiceNote(e.target.value)}
+              placeholder="Optional note to display on generated invoices (can also be edited per invoice)..."
+              className="w-full px-3.5 py-2 text-sm rounded-lg border border-amber-200 bg-amber-50/20 focus:bg-white focus:border-amber-500 focus:outline-none"
             />
           </div>
 

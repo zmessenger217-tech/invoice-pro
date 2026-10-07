@@ -271,6 +271,7 @@ export function getOrComputeMonthlyRecord(
       // Always ensure invoiceDate and dueDate align with the selected month
       invoiceDate: getIssueDateForMonth(month, existing.invoiceDate),
       dueDate: getDueDateForMonth(month, existing.dueDate),
+      invoiceNote: existing.invoiceNote ?? client.invoiceNote,
     };
   }
 
@@ -311,6 +312,7 @@ export function getOrComputeMonthlyRecord(
     invoiceNumber: `INV-${numSuffix}`,
     invoiceDate: getIssueDateForMonth(month),
     dueDate: getDueDateForMonth(month),
+    invoiceNote: client.invoiceNote,
     payments: [],
     partnerId: client.partnerId,
     partnerName: client.partnerName,

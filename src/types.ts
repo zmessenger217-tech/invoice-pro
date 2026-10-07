@@ -41,6 +41,7 @@ export interface GeneratedReceiptItem {
   remainingDues: number;
   status: PaymentStatus;
   generatedAt: string;
+  invoiceNote?: string;
   doc: InvoiceEditableDocument;
 }
 
@@ -68,6 +69,7 @@ export interface CompanyProfile {
   defaultDueDate?: string;
   invoiceHeaderTitle?: string;
   invoiceHeaderNote?: string;
+  defaultInvoiceNote?: string;
   invoiceFooterThankYou?: string;
   invoiceFooterTerms?: string;
   invoiceTheme?: InvoiceTheme;
@@ -121,6 +123,7 @@ export interface MonthlyLedgerRecord {
   partnerChatbotCharges?: number;
   partnerTotalPayment?: number;
   partnerNote?: string;
+  invoiceNote?: string;
 }
 
 export interface ClientEntity {
@@ -216,6 +219,7 @@ export interface InvoiceEditableDocument {
   previousDuesLabel: string;
   previousDues: number;
   amountPaid: number;
+  invoiceNote?: string;
   footerThankYou: string;
   footerTerms: string;
   qrLabel: string;

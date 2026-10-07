@@ -135,12 +135,14 @@ function buildEditableInvoiceFromClient(
       previousDuesLabel: 'Previous Dues',
       previousDues: 0,
       amountPaid: 0,
+      invoiceNote: company.defaultInvoiceNote || '',
       footerThankYou,
       footerTerms,
       qrLabel,
       showQrCode,
       logoDataUrl: resolveActiveLogoUrl(company.logoDataUrl),
       qrCodeDataUrl: company.qrCodeDataUrl,
+      qrCodes: company.qrCodes,
       theme,
       status: 'Unpaid',
     };
@@ -151,6 +153,17 @@ function buildEditableInvoiceFromClient(
   const whatsappLabel = isPerMonthWhatsapp
     ? 'WhatsApp Charges'
     : `WhatsApp Charges (${rec.whatsappRate} × ${rec.whatsappMessages.toLocaleString()})`;
+
+  const savedReceiptForMonth = (company.receiptLog || []).find(
+    (r) => r.clientId === client.id && r.month === month
+  );
+  const resolvedInvoiceNote =
+    rec.invoiceNote !== undefined
+      ? rec.invoiceNote
+      : savedReceiptForMonth?.invoiceNote ||
+        savedReceiptForMonth?.doc?.invoiceNote ||
+        company.defaultInvoiceNote ||
+        '';
 
   return {
     id: `${client.id}-${month}`,
@@ -184,6 +197,7 @@ function buildEditableInvoiceFromClient(
     previousDuesLabel: rec.previousDuesLabel || 'Previous Dues',
     previousDues: rec.previousDues,
     amountPaid: rec.amountPaid,
+    invoiceNote: resolvedInvoiceNote,
     footerThankYou,
     footerTerms,
     qrLabel,
@@ -238,6 +252,11 @@ export default function App() {
       getCurrentMonthLabel()
     )
   );
+  const noteSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSyncRef = useRef<{
+    client?: ClientEntity;
+    company?: CompanyProfile;
+  }>({});
 
   // Keep invoiceDoc and editorClientId dynamically synced with the current account's clients, company, and selectedMonth
   useEffect(() => {
@@ -251,6 +270,99 @@ export default function App() {
       buildEditableInvoiceFromClient(company, validClient, selectedMonth)
     );
   }, [selectedMonth, clients, company]);
+
+  // Automatically persist invoiceNote and QR codes to client ledger & workspace Firestore as user edits
+  const handleChangeInvoiceDoc = (nextDoc: InvoiceEditableDocument) => {
+    const noteChanged = nextDoc.invoiceNote !== invoiceDoc.invoiceNote;
+    const qrsChanged = nextDoc.qrCodes !== invoiceDoc.qrCodes;
+    setInvoiceDoc(nextDoc);
+
+    if (!noteChanged && !qrsChanged) return;
+
+    const month = nextDoc.billingMonth || selectedMonth;
+    const target =
+      clients.find((c) => c.id === nextDoc.clientId) ||
+      clients.find((c) => c.id === editorClientId) ||
+      clients[0];
+
+    let updatedClientForSync: ClientEntity | undefined;
+    if (target && noteChanged) {
+      const currentRec = getOrComputeMonthlyRecord(target, month);
+      updatedClientForSync = {
+        ...target,
+        monthlyRecords: {
+          ...target.monthlyRecords,
+          [month]: {
+            ...currentRec,
+            invoiceNote: nextDoc.invoiceNote ?? '',
+          },
+        },
+      };
+      setClients((prev) =>
+        prev.map((c) => (c.id === target.id ? updatedClientForSync! : c))
+      );
+    }
+
+    const updatedReceiptLog = Array.isArray(company.receiptLog)
+      ? company.receiptLog.map((r) =>
+          target && r.clientId === target.id && r.month === month
+            ? {
+                ...r,
+                invoiceNote: nextDoc.invoiceNote ?? '',
+                doc: {
+                  ...r.doc,
+                  invoiceNote: nextDoc.invoiceNote ?? '',
+                  qrCodes: nextDoc.qrCodes || r.doc?.qrCodes,
+                },
+              }
+            : r
+        )
+      : company.receiptLog;
+
+    const updatedCompanyForSync: CompanyProfile = {
+      ...company,
+      defaultInvoiceNote: noteChanged
+        ? nextDoc.invoiceNote ?? ''
+        : company.defaultInvoiceNote,
+      qrCodes:
+        qrsChanged && nextDoc.qrCodes
+          ? nextDoc.qrCodes
+          : company.qrCodes,
+      qrCodeDataUrl:
+        qrsChanged && nextDoc.qrCodes?.[0]?.dataUrl
+          ? nextDoc.qrCodes[0].dataUrl
+          : company.qrCodeDataUrl,
+      receiptLog: updatedReceiptLog,
+    };
+    setCompany(updatedCompanyForSync);
+
+    pendingSyncRef.current = {
+      client: updatedClientForSync || pendingSyncRef.current.client,
+      company: updatedCompanyForSync,
+    };
+
+    if (noteSyncTimeoutRef.current) {
+      clearTimeout(noteSyncTimeoutRef.current);
+    }
+    noteSyncTimeoutRef.current = setTimeout(async () => {
+      const activeUser = firebaseUser || auth.currentUser;
+      const toSync = pendingSyncRef.current;
+      pendingSyncRef.current = {};
+      if (!activeUser) return;
+      try {
+        await Promise.all([
+          toSync.client
+            ? syncClientToFirestore(activeUser.uid, toSync.client, false)
+            : Promise.resolve(),
+          toSync.company
+            ? syncWorkspaceProfileToFirestore(activeUser.uid, toSync.company)
+            : Promise.resolve(),
+        ]);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 350);
+  };
 
   // Save cache strictly under the authenticated user's UID key only
   useEffect(() => {
@@ -345,6 +457,12 @@ export default function App() {
             showQrCode: remoteCompany.showQrCode !== false,
             logoDataUrl: resolveActiveLogoUrl(remoteCompany.logoDataUrl),
             qrCodeDataUrl: remoteCompany.qrCodeDataUrl,
+            qrCodes:
+              remoteCompany.qrCodes && remoteCompany.qrCodes.length > 0
+                ? remoteCompany.qrCodes
+                : prev.qrCodes,
+            invoiceNote:
+              prev.invoiceNote || remoteCompany.defaultInvoiceNote || '',
             theme: remoteCompany.invoiceTheme || prev.theme,
             softwareLabel:
               remoteCompany.defaultSoftwareLabel || prev.softwareLabel,
@@ -472,6 +590,7 @@ export default function App() {
       defaultDueDate: docData.dueDate.trim(),
       invoiceHeaderTitle: docData.headerTitle.trim() || 'INVOICE',
       invoiceHeaderNote: docData.headerNote.trim(),
+      defaultInvoiceNote: (docData.invoiceNote || '').trim(),
       invoiceFooterThankYou:
         docData.footerThankYou.trim() || 'Thank you for your business & trust!',
       invoiceFooterTerms: docData.footerTerms.trim(),
@@ -550,6 +669,7 @@ export default function App() {
           invoiceNumber: docData.invoiceNumber || currentRec.invoiceNumber,
           invoiceDate: docData.invoiceDate || currentRec.invoiceDate,
           dueDate: docData.dueDate || currentRec.dueDate,
+          invoiceNote: docData.invoiceNote,
         },
       },
     };
@@ -582,6 +702,7 @@ export default function App() {
         dateStyle: 'medium',
         timeStyle: 'short',
       }),
+      invoiceNote: docData.invoiceNote,
       doc: docData,
     };
 
@@ -590,6 +711,11 @@ export default function App() {
     );
     const updatedCompany: CompanyProfile = {
       ...company,
+      qrCodes:
+        docData.qrCodes && docData.qrCodes.length > 0
+          ? docData.qrCodes
+          : company.qrCodes,
+      qrCodeDataUrl: docData.qrCodeDataUrl || company.qrCodeDataUrl,
       receiptLog: [savedReceiptItem, ...existingLog],
       receiptLogMonth: month,
     };
@@ -1121,7 +1247,15 @@ export default function App() {
     setEditorClientId(clientId);
     setSelectedMonth(month);
     if (doc) {
-      setInvoiceDoc(doc);
+      setInvoiceDoc({
+        ...doc,
+        qrCodes:
+          doc.qrCodes && doc.qrCodes.length > 0
+            ? doc.qrCodes
+            : company.qrCodes,
+        qrCodeDataUrl: doc.qrCodeDataUrl || company.qrCodeDataUrl,
+        invoiceNote: doc.invoiceNote ?? company.defaultInvoiceNote ?? '',
+      });
     } else {
       const target = clients.find((c) => c.id === clientId);
       if (target) {
@@ -1556,6 +1690,34 @@ export default function App() {
             type="button"
             onClick={async () => {
               isSigningUpRef.current = false;
+              if (noteSyncTimeoutRef.current) {
+                clearTimeout(noteSyncTimeoutRef.current);
+                noteSyncTimeoutRef.current = null;
+              }
+              const activeUser = firebaseUser || auth.currentUser;
+              const toSync = pendingSyncRef.current;
+              pendingSyncRef.current = {};
+              if (activeUser && (toSync.client || toSync.company)) {
+                try {
+                  await Promise.all([
+                    toSync.client
+                      ? syncClientToFirestore(
+                          activeUser.uid,
+                          toSync.client,
+                          false
+                        )
+                      : Promise.resolve(),
+                    toSync.company
+                      ? syncWorkspaceProfileToFirestore(
+                          activeUser.uid,
+                          toSync.company
+                        )
+                      : Promise.resolve(),
+                  ]);
+                } catch {
+                  // ignore sync error before signout
+                }
+              }
               try {
                 sessionStorage.removeItem(SESSION_UID_KEY);
               } catch {
@@ -1783,7 +1945,7 @@ export default function App() {
               selectedMonth={selectedMonth}
               onSelectClientAndMonth={handleSelectEditorClientAndMonth}
               invoiceDoc={invoiceDoc}
-              onChangeInvoiceDoc={setInvoiceDoc}
+              onChangeInvoiceDoc={handleChangeInvoiceDoc}
               onSaveInvoiceChanges={handleSaveInvoiceChanges}
               onDeleteInvoice={handleDeleteInvoice}
               onSaveAsDefaultInvoice={handleSaveAsDefaultInvoice}

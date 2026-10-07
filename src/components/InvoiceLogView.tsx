@@ -146,9 +146,24 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
     0
   );
 
+  const getEnrichedDoc = (item: GeneratedReceiptItem) => ({
+    ...item.doc,
+    qrCodes:
+      item.doc?.qrCodes && item.doc.qrCodes.length > 0
+        ? item.doc.qrCodes
+        : company.qrCodes,
+    qrCodeDataUrl: item.doc?.qrCodeDataUrl || company.qrCodeDataUrl,
+    showQrCode: item.doc?.showQrCode ?? company.showQrCode !== false,
+    invoiceNote:
+      item.invoiceNote ??
+      item.doc?.invoiceNote ??
+      company.defaultInvoiceNote ??
+      '',
+  });
+
   const handleDownload = (item: GeneratedReceiptItem) => {
     try {
-      downloadInvoicePdfWithClientName(item.doc, currency);
+      downloadInvoicePdfWithClientName(getEnrichedDoc(item), currency);
       setToastMessage(`Downloaded invoice for ${item.clientName}`);
       setTimeout(() => setToastMessage(null), 3500);
     } catch {
@@ -158,8 +173,8 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
 
   const handlePrint = (item: GeneratedReceiptItem) => {
     try {
-      printInvoiceDocument(item.doc, currency);
-      setToastMessage(`Opening print dialog for ${item.clientName}`);
+      printInvoiceDocument(getEnrichedDoc(item), currency);
+      setToastMessage(`Opening print preview for ${item.clientName}`);
       setTimeout(() => setToastMessage(null), 3500);
     } catch {
       onQuickPrintInvoice(item.clientId, item.month);
@@ -168,7 +183,7 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
 
   const handleWhatsApp = async (item: GeneratedReceiptItem) => {
     try {
-      await prepareWhatsAppPdfShare(item.doc, currency);
+      await prepareWhatsAppPdfShare(getEnrichedDoc(item), currency);
       setToastMessage(`Prepared WhatsApp share for ${item.clientName}`);
       setTimeout(() => setToastMessage(null), 4000);
     } catch {

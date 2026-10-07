@@ -38,6 +38,16 @@ export function getResolvedQrCodes(docData: {
   ];
 }
 
+function getImageFormatFromDataUrl(dataUrl: string): 'JPEG' | 'PNG' {
+  if (
+    dataUrl.startsWith('data:image/jpeg') ||
+    dataUrl.startsWith('data:image/jpg')
+  ) {
+    return 'JPEG';
+  }
+  return 'PNG';
+}
+
 export function getClientPdfFilename(docData: InvoiceEditableDocument): string {
   const safeClientName = (docData.clientName || 'Client')
     .trim()
@@ -125,7 +135,14 @@ export function buildInvoicePdfInstance(
     try {
       pdf.setFillColor(255, 255, 255);
       pdf.roundedRect(18, 10, 20, 20, 2.5, 2.5, 'F');
-      pdf.addImage(pdfLogoUrl, 19.5, 11.5, 17, 17);
+      pdf.addImage(
+        pdfLogoUrl,
+        getImageFormatFromDataUrl(pdfLogoUrl),
+        19.5,
+        11.5,
+        17,
+        17
+      );
       textStartX = 42;
     } catch {
       pdf.setFillColor(...palette.accent);
@@ -438,31 +455,115 @@ export function buildInvoicePdfInstance(
     { align: 'right' }
   );
 
-  // Bottom Executive Footer Band
+  // Optional Invoice Note Box (under Payment Summary / above Footer)
+  const cleanInvoiceNote = (docData.invoiceNote || '').trim();
+  if (cleanInvoiceNote) {
+    const noteTop = summaryTop + 55;
+    pdf.setDrawColor(203, 213, 225);
+    pdf.setFillColor(255, 251, 235); // soft amber/warm note tint
+    pdf.roundedRect(summaryLeft, noteTop, summaryWidth, 21, 2, 2, 'FD');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8);
+    pdf.setTextColor(180, 83, 9);
+    pdf.text('INVOICE NOTE:', summaryLeft + 4, noteTop + 5.5);
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(51, 65, 85);
+    const wrappedNote = pdf.splitTextToSize(
+      cleanInvoiceNote,
+      summaryWidth - 8
+    ) as string[];
+    pdf.text(wrappedNote.slice(0, 3), summaryLeft + 4, noteTop + 10.5);
+  }
+
+  // Bottom Executive Footer Band (holds Thank-You, Terms, Contact & ALL QR Codes at Footer)
+  const footerHeight = 46;
+  const footerTop = pageHeight - footerHeight;
   pdf.setFillColor(...palette.softBg);
-  pdf.rect(0, pageHeight - 36, pageWidth, 36, 'F');
+  pdf.rect(0, footerTop, pageWidth, footerHeight, 'F');
   pdf.setDrawColor(226, 232, 240);
-  pdf.line(0, pageHeight - 36, pageWidth, pageHeight - 36);
+  pdf.line(0, footerTop, pageWidth, footerTop);
+
+  // QR Code Boxes on Bottom Footer (all added QR codes shown at footer with complete titles)
+  const qrList =
+    docData.showQrCode !== false ? getResolvedQrCodes(docData) : [];
+  const qrCount = qrList.length;
+
+  // Dynamically size QR boxes so ALL QR codes and their complete titles fit cleanly in the footer
+  const maxQrAreaWidth = 195;
+  const gap = qrCount > 4 ? 2.5 : 3.5;
+  const defaultQrImgSize = qrCount > 3 ? 21 : 23;
+
+  // Measure required width for each QR box so titles show completely
+  pdf.setFont('helvetica', 'bold');
+  const titleFontSize = qrCount > 4 ? 6.5 : 7.2;
+  const acctFontSize = qrCount > 4 ? 5.8 : 6.4;
+
+  const boxWidths = qrList.map((qr) => {
+    const titleStr = (qr.bankName || qr.label || 'Scan to Pay').trim();
+    const acctStr = (qr.accountNumber || qr.accountTitle || '').trim();
+    pdf.setFontSize(titleFontSize);
+    const titleW = pdf.getTextWidth(titleStr);
+    pdf.setFontSize(acctFontSize);
+    const acctW = pdf.getTextWidth(acctStr);
+    const neededTextW = Math.max(titleW, acctW) + 6;
+    const minBoxW = defaultQrImgSize + 7;
+    const maxSingleBoxW =
+      qrCount === 1
+        ? 85
+        : qrCount === 2
+        ? 75
+        : qrCount === 3
+        ? 58
+        : Math.floor((maxQrAreaWidth - (qrCount - 1) * gap) / qrCount);
+    return Math.min(maxSingleBoxW, Math.max(minBoxW, Math.ceil(neededTextW)));
+  });
+
+  let totalQrWidth =
+    qrCount > 0
+      ? boxWidths.reduce((acc, w) => acc + w, 0) + (qrCount - 1) * gap
+      : 0;
+  if (totalQrWidth > maxQrAreaWidth && qrCount > 0) {
+    const scale = (maxQrAreaWidth - (qrCount - 1) * gap) / (totalQrWidth - (qrCount - 1) * gap);
+    for (let i = 0; i < boxWidths.length; i++) {
+      boxWidths[i] = Math.max(22, Math.floor(boxWidths[i] * scale));
+    }
+    totalQrWidth =
+      boxWidths.reduce((acc, w) => acc + w, 0) + (qrCount - 1) * gap;
+  }
+
+  const leftTextMaxWidth =
+    qrCount > 0
+      ? Math.max(68, pageWidth - 18 - totalQrWidth - 22)
+      : pageWidth - 36;
 
   pdf.setTextColor(...palette.accent);
   pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(11);
+  pdf.setFontSize(10.5);
   pdf.text(
-    docData.footerThankYou || 'Thank you for your business & trust!',
+    (docData.footerThankYou || 'Thank you for your business & trust!').slice(
+      0,
+      75
+    ),
     18,
-    pageHeight - 25
+    footerTop + 11
   );
 
   if (docData.footerTerms) {
     pdf.setTextColor(71, 85, 105);
     pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(8.5);
-    pdf.text(docData.footerTerms.slice(0, 125), 18, pageHeight - 17.5);
+    pdf.setFontSize(8);
+    const wrappedTerms = pdf.splitTextToSize(
+      docData.footerTerms,
+      leftTextMaxWidth
+    ) as string[];
+    pdf.text(wrappedTerms.slice(0, 2), 18, footerTop + 18);
   }
 
   pdf.setTextColor(100, 116, 139);
   pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(8.5);
+  pdf.setFontSize(8);
   const contactParts = [
     docData.companyWebsite,
     docData.companyEmail,
@@ -473,55 +574,84 @@ export function buildInvoicePdfInstance(
       ? contactParts.join('   |   ')
       : 'Official Billing Statement',
     18,
-    pageHeight - 9.5
+    pageHeight - 7.5
   );
 
-  // QR Code Boxes on Bottom Right (if enabled)
-  if (docData.showQrCode !== false) {
-    const qrList = getResolvedQrCodes(docData);
-    if (qrList.length > 0) {
-      const qrSize = 25;
-      const gap = 4;
-      const totalWidth = qrList.length * (qrSize + 6) + (qrList.length - 1) * gap;
-      let curQrX = pageWidth - 18 - totalWidth;
-      const qrY = pageHeight - 39;
+  if (qrCount > 0) {
+    let curQrX = pageWidth - 18 - totalQrWidth;
 
-      for (const qr of qrList) {
-        pdf.setFillColor(255, 255, 255);
-        pdf.setDrawColor(203, 213, 225);
-        pdf.roundedRect(
-          curQrX,
-          qrY - 2,
-          qrSize + 6,
-          qrSize + 10,
-          2,
-          2,
-          'FD'
-        );
+    for (let idx = 0; idx < qrList.length; idx++) {
+      const qr = qrList[idx];
+      const qrBoxW = boxWidths[idx];
+      const fullBankLabel = (qr.bankName || qr.label || 'Scan to Pay').trim();
+      const fullAcct = (qr.accountNumber || qr.accountTitle || '').trim();
 
-        if (qr.dataUrl && qr.dataUrl.startsWith('data:image/')) {
-          try {
-            pdf.addImage(qr.dataUrl, curQrX + 3, qrY, qrSize, qrSize);
-          } catch {
-            drawMatrixQr(pdf, curQrX + 3, qrY, qrSize);
-          }
-        } else {
-          drawMatrixQr(pdf, curQrX + 3, qrY, qrSize);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(titleFontSize);
+      const wrappedTitle = pdf.splitTextToSize(
+        fullBankLabel,
+        qrBoxW - 3
+      ) as string[];
+      const titleLines = wrappedTitle.slice(0, 2);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(acctFontSize);
+      const wrappedAcct = fullAcct
+        ? (pdf.splitTextToSize(fullAcct, qrBoxW - 3) as string[]).slice(0, 2)
+        : [];
+
+      const textLinesCount = titleLines.length + wrappedAcct.length;
+      const qrSize =
+        textLinesCount >= 3
+          ? Math.min(defaultQrImgSize, 19)
+          : defaultQrImgSize;
+      const qrBoxH = Math.min(42, qrSize + 4 + textLinesCount * 3.1 + 1.5);
+      const qrBoxY = pageHeight - qrBoxH - 2;
+
+      pdf.setFillColor(255, 255, 255);
+      pdf.setDrawColor(203, 213, 225);
+      pdf.roundedRect(curQrX, qrBoxY, qrBoxW, qrBoxH, 2, 2, 'FD');
+
+      const imgX = curQrX + (qrBoxW - qrSize) / 2;
+      const imgY = qrBoxY + 1.6;
+
+      if (qr.dataUrl && qr.dataUrl.startsWith('data:image/')) {
+        try {
+          pdf.addImage(
+            qr.dataUrl,
+            getImageFormatFromDataUrl(qr.dataUrl),
+            imgX,
+            imgY,
+            qrSize,
+            qrSize
+          );
+        } catch {
+          drawMatrixQr(pdf, imgX, imgY, qrSize);
         }
-
-        pdf.setFontSize(7.5);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(51, 65, 85);
-        const truncatedLabel = (qr.label || 'Scan to Pay').slice(0, 16);
-        pdf.text(
-          truncatedLabel,
-          curQrX + (qrSize + 6) / 2,
-          qrY + qrSize + 5.5,
-          { align: 'center' }
-        );
-
-        curQrX += qrSize + 6 + gap;
+      } else {
+        drawMatrixQr(pdf, imgX, imgY, qrSize);
       }
+
+      let textCursorY = imgY + qrSize + 3.2;
+      pdf.setFontSize(titleFontSize);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(30, 41, 59);
+      for (const line of titleLines) {
+        pdf.text(line, curQrX + qrBoxW / 2, textCursorY, { align: 'center' });
+        textCursorY += 2.9;
+      }
+
+      if (wrappedAcct.length > 0) {
+        pdf.setFontSize(acctFontSize);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(100, 116, 139);
+        for (const line of wrappedAcct) {
+          pdf.text(line, curQrX + qrBoxW / 2, textCursorY, { align: 'center' });
+          textCursorY += 2.7;
+        }
+      }
+
+      curQrX += qrBoxW + gap;
     }
   }
 
@@ -561,8 +691,9 @@ export function downloadInvoicePdfWithClientName(
 
 /**
  * Reliable cross-browser & iframe-compatible Print handler.
- * Builds a dedicated printable HTML sheet in a hidden iframe and invokes its print dialog,
- * falling back to window.print() if needed.
+ * Injects the printable sheet directly into document.body (#invoice-print-container),
+ * triggers window.print() synchronously with user gesture, and displays an interactive
+ * Print Preview dialog with direct Print & Save PDF actions.
  */
 export function printInvoiceDocument(
   docData: InvoiceEditableDocument,
@@ -607,15 +738,15 @@ export function printInvoiceDocument(
   const resolvedQrs = getResolvedQrCodes(docData);
   const qrHtml =
     docData.showQrCode !== false && resolvedQrs.length > 0
-      ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      ? `<div style="display:flex;align-items:stretch;gap:12px;flex-wrap:wrap;justify-content:flex-end;">
           ${resolvedQrs
             .map(
               (qr) => `
-            <div style="background:#fff;border:1px solid #cbd5e1;border-radius:12px;padding:8px;text-align:center;min-width:96px;">
+            <div style="background:#fff;border:1px solid #cbd5e1;border-radius:12px;padding:10px 12px;text-align:center;min-width:128px;max-width:220px;box-shadow:0 1px 2px rgba(0,0,0,0.04);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;">
               ${
                 qr.dataUrl && qr.dataUrl.startsWith('data:image/')
-                  ? `<img src="${qr.dataUrl}" alt="QR" style="width:84px;height:84px;object-fit:contain;display:block;margin:0 auto;" />`
-                  : `<div style="width:84px;height:84px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:#f8fafc;padding:4px;border:1px solid #e2e8f0;">
+                  ? `<img src="${qr.dataUrl}" alt="QR" style="width:96px;height:96px;object-fit:contain;display:block;margin:0 auto;" />`
+                  : `<div style="width:96px;height:96px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:#f8fafc;padding:4px;border:1px solid #e2e8f0;">
                       <div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div>
                       <div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div>
                       <div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div>
@@ -623,231 +754,297 @@ export function printInvoiceDocument(
                       <div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div>
                     </div>`
               }
-              <div style="font-size:10px;font-weight:700;color:#334155;margin-top:4px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${
-                qr.label || 'Scan to Pay'
+              <div style="font-size:11px;font-weight:700;color:#1e293b;margin-top:6px;white-space:normal;word-break:break-word;line-height:1.35;width:100%;">${
+                qr.bankName || qr.label || 'Scan to Pay'
               }</div>
+              ${
+                qr.accountNumber || qr.accountTitle
+                  ? `<div class="mono" style="font-size:9.5px;color:#475569;margin-top:2px;white-space:normal;word-break:break-word;line-height:1.3;width:100%;">${
+                      qr.accountNumber || qr.accountTitle
+                    }</div>`
+                  : ''
+              }
             </div>`
             )
             .join('')}
         </div>`
       : '';
 
-  const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>${docData.clientName || 'Client'} - Invoice ${invFormatted}</title>
-  <style>
-    @page { size: A4 landscape; margin: 10mm; }
-    * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      color: #0f172a;
-      background: #ffffff;
-    }
-    .sheet {
-      border: 1px solid #cbd5e1;
-      border-radius: 14px;
-      overflow: hidden;
-    }
-    .header {
-      background: ${palette.hexHeader};
-      border-bottom: 4px solid ${palette.hexAccent};
-      color: #ffffff;
-      padding: 20px 26px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .brand { display: flex; align-items: center; gap: 14px; }
-    .logo-box {
-      width: 52px; height: 52px; border-radius: 10px; background: #ffffff; padding: 4px;
-      display: flex; align-items: center; justify-content: center; overflow: hidden;
-    }
-    .logo-box img { width: 100%; height: 100%; object-fit: contain; }
-    .body { padding: 20px 26px; }
-    .meta-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-bottom: 18px; }
-    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px; }
-    .main-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 18px; align-items: start; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th { background: ${palette.hexHeader}; color: #ffffff; padding: 9px 12px; text-align: left; font-size: 11px; text-transform: uppercase; }
-    td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
-    .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
-    .footer {
-      background: ${palette.hexSoftBg};
-      border-top: 1px solid #e2e8f0;
-      padding: 16px 26px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 16px;
-    }
-  </style>
-</head>
-<body>
-  <div class="sheet">
-    <div class="header">
-      <div class="brand">
-        <div class="logo-box">
-          <img src="${activeLogoSrc}" alt="Logo" onerror="this.style.display='none'" />
-        </div>
-        <div>
-          <div style="font-size:20px;font-weight:800;">${docData.companyName || 'Your Company Name'}</div>
-          <div style="font-size:12px;color:#cbd5e1;margin-top:2px;">${docData.companyTagline || ''}</div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${docData.headerNote || ''}</div>
-        </div>
-      </div>
-      <div style="text-align:right;">
-        <div style="font-size:22px;font-weight:800;letter-spacing:0.04em;">${(docData.headerTitle || 'INVOICE').toUpperCase()}</div>
-        <div class="mono" style="font-size:13px;font-weight:700;color:#93c5fd;margin-top:3px;">${invFormatted}</div>
-        <div style="font-size:11px;color:#cbd5e1;margin-top:4px;">Billing Period: <strong>${docData.billingMonth}</strong></div>
-      </div>
-    </div>
+  const noteHtml =
+    docData.invoiceNote && docData.invoiceNote.trim()
+      ? `<div style="margin-top:12px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;font-size:11.5px;color:#334155;">
+          <span style="font-weight:800;color:#b45309;text-transform:uppercase;font-size:10px;letter-spacing:0.05em;display:block;margin-bottom:3px;">Note / Instructions</span>
+          <div style="white-space:pre-wrap;line-height:1.45;">${docData.invoiceNote.trim()}</div>
+        </div>`
+      : '';
 
-    <div class="body">
-      <div class="meta-grid">
-        <div class="card">
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:${palette.hexAccent};letter-spacing:0.06em;">Billed To</div>
-          <div style="font-size:16px;font-weight:800;margin-top:4px;">${docData.clientName || 'Client Name'}</div>
-          <div style="font-size:12px;color:#475569;margin-top:4px;">${[docData.clientAddress, docData.clientPhone].filter(Boolean).join(' &nbsp;•&nbsp; ')}</div>
-        </div>
-        <div class="card" style="display:flex;flex-direction:column;justify-content:space-between;">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
-            <div>
-              <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Issue Date</div>
-              <div class="mono" style="font-size:12px;font-weight:700;margin-top:3px;">${docData.invoiceDate}</div>
+  const sheetMarkup = `
+    <style>
+      .print-sheet-wrap {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #0f172a;
+        background: #ffffff;
+        width: 100%;
+      }
+      .print-sheet-wrap * {
+        box-sizing: border-box;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .print-sheet {
+        border: 1px solid #cbd5e1;
+        border-radius: 14px;
+        overflow: hidden;
+        background: #ffffff;
+      }
+      .print-header {
+        background: ${palette.hexHeader};
+        border-bottom: 4px solid ${palette.hexAccent};
+        color: #ffffff;
+        padding: 20px 26px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .print-brand { display: flex; align-items: center; gap: 14px; }
+      .print-logo-box {
+        width: 52px; height: 52px; border-radius: 10px; background: #ffffff; padding: 4px;
+        display: flex; align-items: center; justify-content: center; overflow: hidden;
+      }
+      .print-logo-box img { width: 100%; height: 100%; object-fit: contain; }
+      .print-body { padding: 20px 26px; }
+      .print-meta-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-bottom: 18px; }
+      .print-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px; }
+      .print-main-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 18px; align-items: start; }
+      .print-sheet table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .print-sheet th { background: ${palette.hexHeader}; color: #ffffff; padding: 9px 12px; text-align: left; font-size: 11px; text-transform: uppercase; }
+      .print-sheet td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+      .print-sheet .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+      .print-footer {
+        background: ${palette.hexSoftBg};
+        border-top: 1px solid #e2e8f0;
+        padding: 16px 26px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        margin-top: 16px;
+      }
+    </style>
+    <div class="print-sheet-wrap">
+      <div class="print-sheet">
+        <div class="print-header">
+          <div class="print-brand">
+            <div class="print-logo-box">
+              <img src="${activeLogoSrc}" alt="Logo" onerror="this.style.display='none'" />
             </div>
             <div>
-              <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Due Date</div>
-              <div class="mono" style="font-size:12px;font-weight:700;color:#dc2626;margin-top:3px;">${docData.dueDate}</div>
-            </div>
-            <div style="text-align:right;">
-              <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Status</div>
-              <div style="font-size:12px;font-weight:800;color:${statusColor};margin-top:3px;">${statusText}</div>
+              <div style="font-size:20px;font-weight:800;">${docData.companyName || 'Your Company Name'}</div>
+              <div style="font-size:12px;color:#cbd5e1;margin-top:2px;">${docData.companyTagline || ''}</div>
+              <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${docData.headerNote || ''}</div>
             </div>
           </div>
-          <div style="font-size:11px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px;margin-top:8px;">
-            Invoice Ref: <span class="mono" style="font-weight:700;color:#0f172a;">${invFormatted}</span> &nbsp;|&nbsp; Currency: <span class="mono" style="font-weight:700;color:#0f172a;">${currency}</span>
+          <div style="text-align:right;">
+            <div style="font-size:22px;font-weight:800;letter-spacing:0.04em;">${(docData.headerTitle || 'INVOICE').toUpperCase()}</div>
+            <div class="mono" style="font-size:13px;font-weight:700;color:#93c5fd;margin-top:3px;">${invFormatted}</div>
+            <div style="font-size:11px;color:#cbd5e1;margin-top:4px;">Billing Period: <strong>${docData.billingMonth}</strong></div>
           </div>
         </div>
-      </div>
 
-      <div class="main-grid">
-        <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
-          <table>
-            <thead>
-              <tr>
-                <th style="width:40px;">#</th>
-                <th>Service Description</th>
-                <th style="text-align:right;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="mono" style="color:#94a3b8;font-weight:700;">01</td>
-                <td style="font-weight:600;">${docData.softwareLabel || 'Software Charges'}</td>
-                <td class="mono" style="text-align:right;font-weight:700;">${formatCurrency(docData.softwareCharges, currency)}</td>
-              </tr>
-              <tr>
-                <td class="mono" style="color:#94a3b8;font-weight:700;">02</td>
-                <td style="font-weight:600;">${docData.whatsappLabel || (docData.whatsappBillingType === 'per_month' ? 'WhatsApp Charges' : `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`)}</td>
-                <td class="mono" style="text-align:right;font-weight:700;">${formatCurrency(docData.whatsappCharges, currency)}</td>
-              </tr>
-              <tr>
-                <td class="mono" style="color:#94a3b8;font-weight:700;">03</td>
-                <td style="font-weight:600;">${docData.chatbotLabel || 'Chatbot Charges'}</td>
-                <td class="mono" style="text-align:right;font-weight:700;">${formatCurrency(docData.chatbotCharges, currency)}</td>
-              </tr>
-              <tr style="background:#f8fafc;">
-                <td></td>
-                <td style="font-weight:700;">Current Month Subtotal</td>
-                <td class="mono" style="text-align:right;font-weight:800;">${formatCurrency(currentMonthTotal, currency)}</td>
-              </tr>
-              <tr style="background:#fef2f2;color:#dc2626;">
-                <td></td>
-                <td style="font-weight:700;">${docData.previousDuesLabel || 'Previous Dues'}</td>
-                <td class="mono" style="text-align:right;font-weight:800;">${formatCurrency(previousDues, currency)}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="print-body">
+          <div class="print-meta-grid">
+            <div class="print-card">
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:${palette.hexAccent};letter-spacing:0.06em;">Billed To</div>
+              <div style="font-size:16px;font-weight:800;margin-top:4px;">${docData.clientName || 'Client Name'}</div>
+              <div style="font-size:12px;color:#475569;margin-top:4px;">${[docData.clientAddress, docData.clientPhone].filter(Boolean).join(' &nbsp;•&nbsp; ')}</div>
+            </div>
+            <div class="print-card" style="display:flex;flex-direction:column;justify-content:space-between;">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                <div>
+                  <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Issue Date</div>
+                  <div class="mono" style="font-size:12px;font-weight:700;margin-top:3px;">${docData.invoiceDate}</div>
+                </div>
+                <div>
+                  <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Due Date</div>
+                  <div class="mono" style="font-size:12px;font-weight:700;color:#dc2626;margin-top:3px;">${docData.dueDate}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Status</div>
+                  <div style="font-size:12px;font-weight:800;color:${statusColor};margin-top:3px;">${statusText}</div>
+                </div>
+              </div>
+              <div style="font-size:11px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px;margin-top:8px;">
+                Invoice Ref: <span class="mono" style="font-weight:700;color:#0f172a;">${invFormatted}</span> &nbsp;|&nbsp; Currency: <span class="mono" style="font-weight:700;color:#0f172a;">${currency}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="print-main-grid">
+            <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:40px;">#</th>
+                    <th>Service Description</th>
+                    <th style="text-align:right;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="mono" style="color:#94a3b8;font-weight:700;">01</td>
+                    <td style="font-weight:600;">${docData.softwareLabel || 'Software Charges'}</td>
+                    <td class="mono" style="text-align:right;font-weight:700;">${formatCurrency(docData.softwareCharges, currency)}</td>
+                  </tr>
+                  <tr>
+                    <td class="mono" style="color:#94a3b8;font-weight:700;">02</td>
+                    <td style="font-weight:600;">${docData.whatsappLabel || (docData.whatsappBillingType === 'per_month' ? 'WhatsApp Charges' : `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`)}</td>
+                    <td class="mono" style="text-align:right;font-weight:700;">${formatCurrency(docData.whatsappCharges, currency)}</td>
+                  </tr>
+                  <tr>
+                    <td class="mono" style="color:#94a3b8;font-weight:700;">03</td>
+                    <td style="font-weight:600;">${docData.chatbotLabel || 'Chatbot Charges'}</td>
+                    <td class="mono" style="text-align:right;font-weight:700;">${formatCurrency(docData.chatbotCharges, currency)}</td>
+                  </tr>
+                  <tr style="background:#f8fafc;">
+                    <td></td>
+                    <td style="font-weight:700;">Current Month Subtotal</td>
+                    <td class="mono" style="text-align:right;font-weight:800;">${formatCurrency(currentMonthTotal, currency)}</td>
+                  </tr>
+                  <tr style="background:#fef2f2;color:#dc2626;">
+                    <td></td>
+                    <td style="font-weight:700;">${docData.previousDuesLabel || 'Previous Dues'}</td>
+                    <td class="mono" style="text-align:right;font-weight:800;">${formatCurrency(previousDues, currency)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;background:#f8fafc;">
+              <div style="background:${palette.hexHeader};color:#fff;padding:9px 14px;font-size:11px;font-weight:700;text-transform:uppercase;">
+                Payment Summary
+              </div>
+              <div style="padding:14px;display:flex;flex-direction:column;gap:10px;font-size:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="color:#475569;font-weight:600;">Total Payable</span>
+                  <span class="mono" style="font-size:15px;font-weight:800;">${formatCurrency(totalAmount, currency)}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e2e8f0;padding-top:10px;">
+                  <span style="color:#475569;font-weight:600;">Amount Paid</span>
+                  <span class="mono" style="font-size:14px;font-weight:700;color:#15803d;">${formatCurrency(amountPaid, currency)}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;color:#dc2626;">
+                  <span style="font-weight:800;">Balance Due</span>
+                  <span class="mono" style="font-size:15px;font-weight:800;">${formatCurrency(remainingDues, currency)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          ${noteHtml}
         </div>
 
-        <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;background:#f8fafc;">
-          <div style="background:${palette.hexHeader};color:#fff;padding:9px 14px;font-size:11px;font-weight:700;text-transform:uppercase;">
-            Payment Summary
+        <div class="print-footer">
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:13px;font-weight:800;color:${palette.hexAccent};">${docData.footerThankYou || 'Thank you for your business & trust!'}</div>
+            <div style="font-size:11px;color:#475569;margin-top:3px;">${docData.footerTerms || ''}</div>
+            <div style="font-size:11px;font-weight:700;color:#64748b;margin-top:5px;">${contactParts || 'Official Billing Statement'}</div>
           </div>
-          <div style="padding:14px;display:flex;flex-direction:column;gap:10px;font-size:12px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span style="color:#475569;font-weight:600;">Total Payable</span>
-              <span class="mono" style="font-size:15px;font-weight:800;">${formatCurrency(totalAmount, currency)}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e2e8f0;padding-top:10px;">
-              <span style="color:#475569;font-weight:600;">Amount Paid</span>
-              <span class="mono" style="font-size:14px;font-weight:700;color:#15803d;">${formatCurrency(amountPaid, currency)}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;color:#dc2626;">
-              <span style="font-weight:800;">Balance Due</span>
-              <span class="mono" style="font-size:15px;font-weight:800;">${formatCurrency(remainingDues, currency)}</span>
-            </div>
-          </div>
+          ${qrHtml}
         </div>
       </div>
     </div>
+  `;
 
-    <div class="footer">
-      <div>
-        <div style="font-size:13px;font-weight:800;color:${palette.hexAccent};">${docData.footerThankYou || 'Thank you for your business & trust!'}</div>
-        <div style="font-size:11px;color:#475569;margin-top:3px;">${docData.footerTerms || ''}</div>
-        <div style="font-size:11px;font-weight:700;color:#64748b;margin-top:5px;">${contactParts || 'Official Billing Statement'}</div>
-      </div>
-      ${qrHtml}
-    </div>
-  </div>
-</body>
-</html>`;
-
-  try {
-    let printFrame = document.getElementById(
-      'invoice-print-frame'
-    ) as HTMLIFrameElement | null;
-    if (printFrame) {
-      printFrame.remove();
-    }
-    printFrame = document.createElement('iframe');
-    printFrame.id = 'invoice-print-frame';
-    printFrame.style.position = 'fixed';
-    printFrame.style.right = '0';
-    printFrame.style.bottom = '0';
-    printFrame.style.width = '0';
-    printFrame.style.height = '0';
-    printFrame.style.border = '0';
-    document.body.appendChild(printFrame);
-
-    const frameDoc =
-      printFrame.contentDocument || printFrame.contentWindow?.document;
-    if (frameDoc && printFrame.contentWindow) {
-      frameDoc.open();
-      frameDoc.write(html);
-      frameDoc.close();
-
-      const triggerPrint = () => {
-        try {
-          printFrame?.contentWindow?.focus();
-          printFrame?.contentWindow?.print();
-        } catch {
-          window.print();
-        }
-      };
-
-      setTimeout(triggerPrint, 300);
-      return;
-    }
-  } catch {
-    // Fallback to direct window.print
+  // 1. Mount #invoice-print-container directly on document.body for @media print
+  let printContainer = document.getElementById('invoice-print-container');
+  if (!printContainer) {
+    printContainer = document.createElement('div');
+    printContainer.id = 'invoice-print-container';
+    document.body.appendChild(printContainer);
   }
-  window.print();
+  printContainer.innerHTML = sheetMarkup;
+  document.body.classList.add('printing-invoice');
+
+  // 2. Also mount an interactive on-screen Print Preview Modal (.no-print) so the user always sees
+  // immediate feedback and can click "Print Now" or "Save PDF" even in sandboxed preview environments.
+  let existingModal = document.getElementById('invoice-print-preview-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  const modalOverlay = document.createElement('div');
+  modalOverlay.id = 'invoice-print-preview-modal';
+  modalOverlay.className = 'no-print';
+  modalOverlay.style.cssText =
+    'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,0.75);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:20px;overflow-y:auto;backdrop-filter:blur(3px);';
+
+  const modalCard = document.createElement('div');
+  modalCard.style.cssText =
+    'background:#f8fafc;border-radius:16px;max-width:1060px;width:100%;box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);overflow:hidden;border:1px solid #cbd5e1;margin:auto;';
+
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText =
+    'background:#0f172a;color:#ffffff;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;';
+  toolbar.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:14px;font-weight:800;letter-spacing:0.01em;">Print Preview — ${
+        docData.clientName || 'Invoice'
+      } (${invFormatted})</span>
+      <span style="font-size:11px;background:#1e293b;color:#93c5fd;padding:3px 9px;border-radius:6px;font-weight:600;">A4 Landscape Ready</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button id="modal-trigger-system-print" type="button" style="background:#2563eb;color:#ffffff;border:none;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+        🖨️ Print Now
+      </button>
+      <button id="modal-trigger-pdf-download" type="button" style="background:#059669;color:#ffffff;border:none;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+        ⬇️ Save as PDF
+      </button>
+      <button id="modal-close-print-preview" type="button" style="background:#334155;color:#e2e8f0;border:none;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">
+        Close
+      </button>
+    </div>
+  `;
+
+  const previewViewport = document.createElement('div');
+  previewViewport.style.cssText = 'padding:22px;background:#e2e8f0;overflow-x:auto;';
+  previewViewport.innerHTML = sheetMarkup;
+
+  modalCard.appendChild(toolbar);
+  modalCard.appendChild(previewViewport);
+  modalOverlay.appendChild(modalCard);
+  document.body.appendChild(modalOverlay);
+
+  const cleanupPrintMode = () => {
+    document.body.classList.remove('printing-invoice');
+    modalOverlay.remove();
+  };
+
+  modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) cleanupPrintMode();
+  });
+
+  const closeBtn = modalCard.querySelector('#modal-close-print-preview');
+  closeBtn?.addEventListener('click', cleanupPrintMode);
+
+  const pdfBtn = modalCard.querySelector('#modal-trigger-pdf-download');
+  pdfBtn?.addEventListener('click', () => {
+    downloadInvoicePdfWithClientName(docData, currency);
+  });
+
+  const executeSystemPrint = () => {
+    document.body.classList.add('printing-invoice');
+    try {
+      window.focus();
+      window.print();
+    } catch {
+      // ignore if blocked by sandbox
+    }
+  };
+
+  const printNowBtn = modalCard.querySelector('#modal-trigger-system-print');
+  printNowBtn?.addEventListener('click', executeSystemPrint);
+
+  // Trigger native system print immediately during the user click event
+  executeSystemPrint();
 }
 
 /**
@@ -896,10 +1093,14 @@ export async function prepareWhatsAppPdfShare(
     `--------------------------------`,
     `*Total Payable:* ${formatCurrency(totalAmount, currency)}`,
     `*Amount Paid:* ${formatCurrency(amountPaid, currency)}`,
-    `*Balance Due:* ${formatCurrency(remainingDues, currency)}`,
-    ``,
-    `${docData.footerThankYou}`
+    `*Balance Due:* ${formatCurrency(remainingDues, currency)}`
   );
+
+  if (docData.invoiceNote && docData.invoiceNote.trim()) {
+    lines.push(``, `*Note:* ${docData.invoiceNote.trim()}`);
+  }
+
+  lines.push(``, `${docData.footerThankYou}`);
 
   const messageText = lines.join('\n');
   const cleanPhone = (docData.clientPhone || '').replace(/[^0-9]/g, '');
