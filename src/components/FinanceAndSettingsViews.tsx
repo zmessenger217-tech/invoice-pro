@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   CreditCard,
+  Download,
   Eye,
   FileText,
   Plus,
@@ -38,6 +39,10 @@ import {
   PaymentQrCodeItem,
   SoftwareCategory,
 } from '../types';
+import {
+  downloadAllPartnersReportPdf,
+  downloadPartnerReportPdf,
+} from '../utils/partnerReportPdf';
 import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
 import { RevenueExpenseChart } from './RevenueExpenseChart';
 
@@ -534,12 +539,44 @@ export const FinanceAndSettingsViews: React.FC<
         .filter((item) => item.isLinked);
     };
 
+    // Aggregate totals across all partners for this month
+    const allPartnerLinkedRecords = clients
+      .filter((c) => c.enabled)
+      .map((c) => {
+        const rec = getOrComputeMonthlyRecord(c, selectedMonth);
+        const isLinked = Boolean(
+          (rec.partnerId && rec.partnerPaymentEnabled) ||
+          (c.partnerId && c.partnerPaymentEnabled)
+        );
+        return {
+          isLinked,
+          softwarePay: isLinked ? Number(rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0) : 0,
+          whatsappPay: isLinked ? Number(rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0) : 0,
+          chatbotPay: isLinked ? Number(rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0) : 0,
+          totalPay: isLinked ? Number(rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0) : 0,
+        };
+      })
+      .filter((x) => x.isLinked);
+
+    const totalPartnerSoftwareAll = allPartnerLinkedRecords.reduce((sum, x) => sum + x.softwarePay, 0);
+    const totalPartnerWhatsappAll = allPartnerLinkedRecords.reduce((sum, x) => sum + x.whatsappPay, 0);
+    const totalPartnerChatbotAll = allPartnerLinkedRecords.reduce((sum, x) => sum + x.chatbotPay, 0);
+
     const modalPartnerSchools = detailPartnerModal
       ? getPartnerSchoolsData(detailPartnerModal.id)
       : [];
     const modalTotalPayout = detailPartnerModal
       ? modalPartnerSchools.reduce((sum, s) => sum + s.totalPay, 0) ||
         detailPartnerModal.monthlyPayment
+      : 0;
+    const modalSoftwarePayout = detailPartnerModal
+      ? modalPartnerSchools.reduce((sum, s) => sum + s.softwarePay, 0)
+      : 0;
+    const modalWhatsappPayout = detailPartnerModal
+      ? modalPartnerSchools.reduce((sum, s) => sum + s.whatsappPay, 0)
+      : 0;
+    const modalChatbotPayout = detailPartnerModal
+      ? modalPartnerSchools.reduce((sum, s) => sum + s.chatbotPay, 0)
       : 0;
     const modalTotalSchoolRevenue = detailPartnerModal
       ? modalPartnerSchools.reduce((sum, s) => sum + s.schoolTotal, 0)
@@ -602,13 +639,13 @@ export const FinanceAndSettingsViews: React.FC<
 
           <div className="bg-white rounded-xl border border-indigo-200 bg-indigo-50/20 p-4">
             <div className="text-xs font-medium text-indigo-900">
-              Partner Payments ({selectedMonth})
+              Total Amount to Pay Partners
             </div>
             <div className="text-xl font-bold text-indigo-600 font-mono tabular-nums mt-1">
               {formatCurrency(partnerPayoutsTotal, currency)}
             </div>
             <div className="text-[11px] text-indigo-500 mt-0.5">
-              Commission across partner-linked {term.plural.toLowerCase()}
+              Total commission across all {term.plural.toLowerCase()}
             </div>
           </div>
 
@@ -621,6 +658,59 @@ export const FinanceAndSettingsViews: React.FC<
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5">
               Net profit retained by company
+            </div>
+          </div>
+        </div>
+
+        {/* Separate Partner Payouts by Service Category */}
+        <div className="bg-indigo-900 text-white rounded-xl p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-indigo-300" />
+              <span className="text-xs font-bold uppercase tracking-wider text-indigo-200">
+                Partner Payment Breakdown by Service ({selectedMonth})
+              </span>
+            </div>
+            <span className="text-xs font-mono font-bold text-indigo-200">
+              Grand Total: {formatCurrency(partnerPayoutsTotal, currency)}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-indigo-950/60 border border-indigo-700/50 rounded-lg p-3">
+              <div className="text-[11px] text-indigo-300 font-medium">
+                Total Software Charges to Partner
+              </div>
+              <div className="text-lg font-bold font-mono text-white mt-1">
+                {formatCurrency(totalPartnerSoftwareAll, currency)}
+              </div>
+              <div className="text-[10px] text-indigo-400 mt-0.5">
+                Software commissions share
+              </div>
+            </div>
+
+            <div className="bg-indigo-950/60 border border-indigo-700/50 rounded-lg p-3">
+              <div className="text-[11px] text-indigo-300 font-medium">
+                Total WhatsApp Charges to Partner
+              </div>
+              <div className="text-lg font-bold font-mono text-white mt-1">
+                {formatCurrency(totalPartnerWhatsappAll, currency)}
+              </div>
+              <div className="text-[10px] text-indigo-400 mt-0.5">
+                WhatsApp messaging share
+              </div>
+            </div>
+
+            <div className="bg-indigo-950/60 border border-indigo-700/50 rounded-lg p-3">
+              <div className="text-[11px] text-indigo-300 font-medium">
+                Total Chatbot Charges to Partner
+              </div>
+              <div className="text-lg font-bold font-mono text-white mt-1">
+                {formatCurrency(totalPartnerChatbotAll, currency)}
+              </div>
+              <div className="text-[10px] text-indigo-400 mt-0.5">
+                AI chatbot service share
+              </div>
             </div>
           </div>
         </div>
@@ -715,9 +805,48 @@ export const FinanceAndSettingsViews: React.FC<
                 Shows all partners, their linked {term.plural.toLowerCase()}, customer remaining amounts, and payment cuts.
               </p>
             </div>
-            <span className="px-3 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
-              {partners.length} {partners.length === 1 ? 'Partner' : 'Partners'} Total
-            </span>
+            <div className="flex items-center gap-2">
+              {partners.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allPartnerData = partners.map((p) => {
+                      const schools = getPartnerSchoolsData(p.id);
+                      const totalSoftware = schools.reduce((sum, s) => sum + s.softwarePay, 0);
+                      const totalWhatsapp = schools.reduce((sum, s) => sum + s.whatsappPay, 0);
+                      const totalChatbot = schools.reduce((sum, s) => sum + s.chatbotPay, 0);
+                      const totalPayCalc = schools.reduce((sum, s) => sum + s.totalPay, 0);
+                      const totalPayout = totalPayCalc > 0 ? totalPayCalc : p.monthlyPayment;
+                      const isPaid = Boolean(p.paidMonths[selectedMonth]?.paid);
+                      return {
+                        partner: p,
+                        schools,
+                        totalSoftware,
+                        totalWhatsapp,
+                        totalChatbot,
+                        totalPayout,
+                        isPaid,
+                      };
+                    });
+                    downloadAllPartnersReportPdf({
+                      partners,
+                      allPartnerData,
+                      company,
+                      selectedMonth,
+                      currency,
+                    });
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-1.5 shadow-2xs transition-colors"
+                  title="Download PDF report summarizing all partners"
+                >
+                  <Download className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>All Partners PDF</span>
+                </button>
+              )}
+              <span className="px-3 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
+                {partners.length} {partners.length === 1 ? 'Partner' : 'Partners'} Total
+              </span>
+            </div>
           </div>
 
           {partners.length === 0 ? (
@@ -730,6 +859,18 @@ export const FinanceAndSettingsViews: React.FC<
                 const partnerSchools = getPartnerSchoolsData(p.id);
                 const schoolPayoutsSum = partnerSchools.reduce(
                   (sum, s) => sum + s.totalPay,
+                  0
+                );
+                const partnerSoftwareSum = partnerSchools.reduce(
+                  (sum, s) => sum + s.softwarePay,
+                  0
+                );
+                const partnerWhatsappSum = partnerSchools.reduce(
+                  (sum, s) => sum + s.whatsappPay,
+                  0
+                );
+                const partnerChatbotSum = partnerSchools.reduce(
+                  (sum, s) => sum + s.chatbotPay,
                   0
                 );
                 const schoolRemainingSum = partnerSchools.reduce(
@@ -808,7 +949,7 @@ export const FinanceAndSettingsViews: React.FC<
                       <div className="flex flex-wrap items-center gap-3">
                         <div className="text-right">
                           <div className="text-xs text-slate-500">
-                            Monthly Payout ({selectedMonth})
+                            Total Payout to Partner
                           </div>
                           <div className="text-base font-bold text-indigo-600 font-mono tabular-nums">
                             {formatCurrency(finalPayout, currency)}
@@ -829,6 +970,25 @@ export const FinanceAndSettingsViews: React.FC<
                           />
                           <span>{isPaid ? 'Paid' : 'Pending'}</span>
                         </span>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            downloadPartnerReportPdf({
+                              partner: p,
+                              partnerSchools,
+                              company,
+                              selectedMonth,
+                              currency,
+                              isPaid,
+                            });
+                          }}
+                          className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+                          title="Download PDF report of software, WhatsApp, and chatbot charges for this partner"
+                        >
+                          <Download className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>PDF Report</span>
+                        </button>
 
                         <button
                           type="button"
@@ -867,6 +1027,30 @@ export const FinanceAndSettingsViews: React.FC<
                         </button>
                       </div>
                     </div>
+
+                    {/* Separate Service Payouts summary pill row for this partner */}
+                    {partnerSchools.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2 bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100 text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">Software Cut to {p.name}</span>
+                          <span className="font-mono font-semibold text-indigo-900">
+                            {formatCurrency(partnerSoftwareSum, currency)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">WhatsApp Cut to {p.name}</span>
+                          <span className="font-mono font-semibold text-indigo-900">
+                            {formatCurrency(partnerWhatsappSum, currency)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">Chatbot Cut to {p.name}</span>
+                          <span className="font-mono font-semibold text-indigo-900">
+                            {formatCurrency(partnerChatbotSum, currency)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Assigned Schools by School Name + Remaining Customer Amount + How Much Paid from Each School */}
                     <div className="bg-slate-50/80 rounded-xl p-3 border border-slate-200/80 space-y-2">
@@ -1027,20 +1211,40 @@ export const FinanceAndSettingsViews: React.FC<
                     </div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDetailPartnerModal(null)}
-                  className="text-slate-400 hover:text-slate-600 p-1"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      downloadPartnerReportPdf({
+                        partner: detailPartnerModal,
+                        partnerSchools: modalPartnerSchools,
+                        company,
+                        selectedMonth,
+                        currency,
+                        isPaid: Boolean(detailPartnerModal.paidMonths[selectedMonth]?.paid),
+                      });
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
+                    title="Download PDF report for this partner only"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download PDF Report</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailPartnerModal(null)}
+                    className="text-slate-400 hover:text-slate-600 p-1"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
               {/* Top Summary Metrics for this Partner */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs">
                   <div className="text-slate-600 font-medium">
-                    Partner Payout
+                    Total Partner Payout
                   </div>
                   <div className="text-lg font-bold text-indigo-700 font-mono tabular-nums mt-1">
                     {formatCurrency(modalTotalPayout, currency)}
@@ -1083,6 +1287,28 @@ export const FinanceAndSettingsViews: React.FC<
                   </div>
                   <div className="text-[10px] text-rose-500 mt-0.5">
                     Customer balance
+                  </div>
+                </div>
+              </div>
+
+              {/* Service Payouts to this Partner */}
+              <div className="grid grid-cols-3 gap-2.5 p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 text-xs">
+                <div>
+                  <div className="text-[11px] font-medium text-slate-600">Software Cut to Partner</div>
+                  <div className="text-sm font-bold text-indigo-900 font-mono mt-0.5">
+                    {formatCurrency(modalSoftwarePayout, currency)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-medium text-slate-600">WhatsApp Cut to Partner</div>
+                  <div className="text-sm font-bold text-indigo-900 font-mono mt-0.5">
+                    {formatCurrency(modalWhatsappPayout, currency)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-medium text-slate-600">Chatbot Cut to Partner</div>
+                  <div className="text-sm font-bold text-indigo-900 font-mono mt-0.5">
+                    {formatCurrency(modalChatbotPayout, currency)}
                   </div>
                 </div>
               </div>
@@ -1279,21 +1505,42 @@ export const FinanceAndSettingsViews: React.FC<
               </div>
 
               {/* Modal Footer */}
-              <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.print();
-                  }}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center gap-1.5 transition-colors"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print Payout Statement</span>
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      downloadPartnerReportPdf({
+                        partner: detailPartnerModal,
+                        partnerSchools: modalPartnerSchools,
+                        company,
+                        selectedMonth,
+                        currency,
+                        isPaid: Boolean(detailPartnerModal.paidMonths[selectedMonth]?.paid),
+                      });
+                    }}
+                    className="px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download PDF Report</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.print();
+                    }}
+                    className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center gap-1.5 transition-colors"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Payout Statement</span>
+                  </button>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => setDetailPartnerModal(null)}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                 >
                   Close
                 </button>

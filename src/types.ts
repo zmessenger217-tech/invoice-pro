@@ -235,6 +235,7 @@ export type ActiveNavTab =
   | 'dashboard'
   | 'add-client'
   | 'check-balance'
+  | 'school-charges-list'
   | 'invoices'
   | 'invoice-editor'
   | 'invoice-log'

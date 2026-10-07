@@ -63,7 +63,9 @@ interface ClientBillingViewsProps {
     chatbotCharges: number,
     amountPaidNow: number,
     method: PaymentTransaction['method'],
-    note: string
+    note: string,
+    whatsappBillingType?: 'per_message' | 'per_month',
+    whatsappCharges?: number
   ) => void;
   onGenerateInvoiceWithCharges: (
     clientId: string,
@@ -159,8 +161,13 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   const [paymentModalClient, setPaymentModalClient] =
     useState<ClientEntity | null>(null);
   const [modalSoftwareCharges, setModalSoftwareCharges] = useState<number>(0);
+  const [modalWhatsappBillingType, setModalWhatsappBillingType] = useState<
+    'per_message' | 'per_month'
+  >('per_message');
   const [modalWhatsappRate, setModalWhatsappRate] = useState<number>(0);
   const [modalWhatsappMessages, setModalWhatsappMessages] = useState<number>(0);
+  const [modalWhatsappMonthlyCharges, setModalWhatsappMonthlyCharges] =
+    useState<number>(0);
   const [modalChatbotCharges, setModalChatbotCharges] = useState<number>(0);
   const [paymentInputAmount, setPaymentInputAmount] = useState<string>('');
   const [selectedBank, setSelectedBank] = useState<string>('');
@@ -199,8 +206,22 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     if (client) {
       const rec = getOrComputeMonthlyRecord(client, selectedMonth);
       setGenSoftwareCharges(rec.softwareCharges);
-      setGenWhatsappRate(rec.whatsappRate);
-      setGenWhatsappMessages(rec.whatsappMessages);
+      const isPerMonth =
+        rec.whatsappBillingType === 'per_month' ||
+        client.whatsappBillingType === 'per_month';
+      if (isPerMonth) {
+        setGenWhatsappRate(
+          rec.whatsappCharges !== undefined && rec.whatsappCharges > 0
+            ? rec.whatsappCharges
+            : client.whatsappCharges !== undefined && client.whatsappCharges > 0
+            ? client.whatsappCharges
+            : 0
+        );
+        setGenWhatsappMessages(1);
+      } else {
+        setGenWhatsappRate(rec.whatsappRate);
+        setGenWhatsappMessages(rec.whatsappMessages);
+      }
       setGenChatbotCharges(rec.chatbotCharges);
     }
   }, [invGeneratorClientId, clients, selectedMonth]);
@@ -296,11 +317,29 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
 
   const openPaymentModalForClient = (client: ClientEntity) => {
     const rec = getOrComputeMonthlyRecord(client, selectedMonth);
+    const billingType =
+      rec.whatsappBillingType ||
+      client.whatsappBillingType ||
+      'per_message';
     setPaymentModalClient(client);
     // Pre-fill with the amounts, rate per message, and number of messages already entered when adding the school
     setModalSoftwareCharges(rec.softwareCharges);
-    setModalWhatsappRate(rec.whatsappRate);
-    setModalWhatsappMessages(rec.whatsappMessages);
+    setModalWhatsappBillingType(billingType);
+    if (billingType === 'per_month') {
+      const monthlyAmount =
+        rec.whatsappCharges !== undefined && rec.whatsappCharges > 0
+          ? rec.whatsappCharges
+          : client.whatsappCharges !== undefined && client.whatsappCharges > 0
+          ? client.whatsappCharges
+          : 0;
+      setModalWhatsappMonthlyCharges(monthlyAmount);
+      setModalWhatsappRate(monthlyAmount);
+      setModalWhatsappMessages(1);
+    } else {
+      setModalWhatsappMonthlyCharges(rec.whatsappCharges || 0);
+      setModalWhatsappRate(rec.whatsappRate);
+      setModalWhatsappMessages(rec.whatsappMessages);
+    }
     setModalChatbotCharges(rec.chatbotCharges);
     setPaymentInputAmount(String(rec.remainingDues || 0));
     const defaultBank =
@@ -1212,9 +1251,16 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       ? getOrComputeMonthlyRecord(paymentModalClient, selectedMonth)
       : null;
 
-    const modalWhatsappTotal = Math.round(
-      (Number(modalWhatsappRate) || 0) * (Number(modalWhatsappMessages) || 0)
-    );
+    const isModalPerMonth =
+      modalWhatsappBillingType === 'per_month' ||
+      activeModalRecord?.whatsappBillingType === 'per_month' ||
+      paymentModalClient?.whatsappBillingType === 'per_month';
+
+    const modalWhatsappTotal = isModalPerMonth
+      ? Number(modalWhatsappMonthlyCharges) || 0
+      : Math.round(
+          (Number(modalWhatsappRate) || 0) * (Number(modalWhatsappMessages) || 0)
+        );
     const modalCurrentMonthTotal =
       (Number(modalSoftwareCharges) || 0) +
       modalWhatsappTotal +
@@ -1385,7 +1431,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                 <thead>
                   <tr className="bg-slate-50/90 text-[11px] font-semibold text-slate-600">
                     <th className="py-3 px-3.5 border border-slate-200">{term.singular} Name</th>
-                    <th className="py-3 px-3 border border-slate-200">WhatsApp Charges</th>
+                    <th className="py-3 px-3 text-right border border-slate-200 bg-blue-50/30 text-blue-900">Software Charges</th>
+                    <th className="py-3 px-3 border border-slate-200 bg-emerald-50/30 text-emerald-900">WhatsApp Charges</th>
+                    <th className="py-3 px-3 text-right border border-slate-200 bg-purple-50/30 text-purple-900">Chatbot Charges</th>
                     <th className="py-3 px-3 text-right border border-slate-200">Prev. Dues</th>
                     <th className="py-3 px-3 text-right border border-slate-200">Total Amount</th>
                     <th className="py-3 px-3 text-right border border-slate-200">Paid</th>
@@ -1414,22 +1462,34 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           {client.phone}
                         </div>
                       </td>
+                      <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-800 border border-slate-200 tabular-nums">
+                        {formatCurrency(
+                          record.softwareCharges * periodMultiplier,
+                          currency
+                        )}
+                      </td>
                       <td className="py-3.5 px-3 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
                         {record.whatsappBillingType === 'per_month' ||
                         (record.whatsappCharges > 0 &&
                           record.whatsappRate === 0 &&
                           record.whatsappMessages === 0) ? (
                           <span className="font-semibold text-slate-800">
-                            {formatCurrency(record.whatsappCharges, currency)}
+                            {formatCurrency(record.whatsappCharges * periodMultiplier, currency)}
                           </span>
                         ) : (
                           <>
                             {record.whatsappRate} ×{' '}
-                            {record.whatsappMessages.toLocaleString()} ={' '}
+                            {(record.whatsappMessages * periodMultiplier).toLocaleString()} ={' '}
                             <span className="font-semibold text-slate-800">
-                              {formatCurrency(record.whatsappCharges, currency)}
+                              {formatCurrency(record.whatsappCharges * periodMultiplier, currency)}
                             </span>
                           </>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-800 border border-slate-200 tabular-nums">
+                        {formatCurrency(
+                          record.chatbotCharges * periodMultiplier,
+                          currency
                         )}
                       </td>
                       <td className="py-3.5 px-3 text-right font-mono tabular-nums text-slate-500 border border-slate-200">
@@ -1562,8 +1622,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   {term.singular})
                 </div>
 
-                {(activeModalRecord.whatsappBillingType === 'per_month' ||
-                  paymentModalClient.whatsappBillingType === 'per_month') ? (
+                {isModalPerMonth ? (
                   <div>
                     <label className="block text-[11px] font-medium text-slate-500 mb-1">
                       Monthly WhatsApp Charges ({currency})
@@ -1571,9 +1630,10 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     <input
                       type="number"
                       min={0}
-                      value={modalWhatsappTotal}
+                      value={modalWhatsappMonthlyCharges}
                       onChange={(e) => {
                         const val = Number(e.target.value) || 0;
+                        setModalWhatsappMonthlyCharges(val);
                         setModalWhatsappRate(val);
                         setModalWhatsappMessages(1);
                       }}
@@ -1716,16 +1776,31 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   if (paymentNote.trim()) {
                     noteParts.push(paymentNote.trim());
                   }
+                  const finalWhatsappCharges = isModalPerMonth
+                    ? Number(modalWhatsappMonthlyCharges) || 0
+                    : modalWhatsappTotal;
+                  const finalWhatsappRate = isModalPerMonth
+                    ? 0
+                    : modalWhatsappRate;
+                  const finalWhatsappMessages = isModalPerMonth
+                    ? 0
+                    : modalWhatsappMessages;
+                  const finalBillingType = isModalPerMonth
+                    ? 'per_month'
+                    : 'per_message';
+
                   onRecordPaymentWithCharges(
                     paymentModalClient.id,
                     selectedMonth,
                     modalSoftwareCharges,
-                    modalWhatsappRate,
-                    modalWhatsappMessages,
+                    finalWhatsappRate,
+                    finalWhatsappMessages,
                     modalChatbotCharges,
                     enteredPayNum,
                     paymentMethod,
-                    noteParts.join(' — ')
+                    noteParts.join(' — '),
+                    finalBillingType,
+                    finalWhatsappCharges
                   );
                   setPaymentModalClient(null);
                 }}

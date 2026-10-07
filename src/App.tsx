@@ -22,6 +22,7 @@ import { ClientBillingViews } from './components/ClientBillingViews';
 import { FinanceAndSettingsViews } from './components/FinanceAndSettingsViews';
 import { InvoiceLogView } from './components/InvoiceLogView';
 import { InvoicePreviewAndEditor } from './components/InvoicePreviewAndEditor';
+import { SchoolChargesAndPartnerListView } from './components/SchoolChargesAndPartnerListView';
 import { OfflineIndicator } from './components/PWAInstallModal';
 import {
   CATEGORY_MAP,
@@ -893,21 +894,28 @@ export default function App() {
     chatbotCharges: number,
     amountPaidNow: number,
     method: PaymentTransaction['method'],
-    note: string
+    note: string,
+    whatsappBillingType?: 'per_message' | 'per_month',
+    explicitWhatsappCharges?: number
   ) => {
     const target = clients.find((c) => c.id === clientId);
     if (!target) return;
 
     const currentRec = getOrComputeMonthlyRecord(target, month);
     const billingType =
+      whatsappBillingType ||
       target.whatsappBillingType ||
       currentRec.whatsappBillingType ||
       'per_message';
     const whatsappCharges =
-      billingType === 'per_month'
-        ? Number(target.whatsappCharges) ||
-          Number(currentRec.whatsappCharges) ||
-          (whatsappRate > 0 ? whatsappRate : 0)
+      explicitWhatsappCharges !== undefined
+        ? explicitWhatsappCharges
+        : billingType === 'per_month'
+        ? (whatsappRate > 0
+            ? whatsappRate
+            : Number(currentRec.whatsappCharges) ||
+              Number(target.whatsappCharges) ||
+              0)
         : Math.round(whatsappRate * whatsappMessages);
     const currentMonthTotal =
       softwareCharges + whatsappCharges + chatbotCharges;
@@ -937,8 +945,8 @@ export default function App() {
       ...target,
       softwareCharges,
       whatsappBillingType: billingType,
-      whatsappRate,
-      whatsappMessages,
+      whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
+      whatsappMessages: billingType === 'per_month' ? 0 : whatsappMessages,
       whatsappCharges,
       chatbotCharges,
       monthlyRecords: {
@@ -947,8 +955,8 @@ export default function App() {
           ...currentRec,
           softwareCharges,
           whatsappBillingType: billingType,
-          whatsappRate,
-          whatsappMessages,
+          whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
+          whatsappMessages: billingType === 'per_month' ? 0 : whatsappMessages,
           whatsappCharges,
           chatbotCharges,
           currentMonthTotal,
@@ -1002,9 +1010,11 @@ export default function App() {
       'per_message';
     const whatsappCharges =
       billingType === 'per_month'
-        ? Number(target.whatsappCharges) ||
-          Number(currentRec.whatsappCharges) ||
-          (whatsappRate > 0 ? whatsappRate : 0)
+        ? (whatsappRate > 0
+            ? whatsappRate
+            : Number(currentRec.whatsappCharges) ||
+              Number(target.whatsappCharges) ||
+              0)
         : Math.round(whatsappRate * whatsappMessages);
     const currentMonthTotal =
       softwareCharges + whatsappCharges + chatbotCharges;
@@ -1021,8 +1031,8 @@ export default function App() {
       ...target,
       softwareCharges,
       whatsappBillingType: billingType,
-      whatsappRate,
-      whatsappMessages,
+      whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
+      whatsappMessages: billingType === 'per_month' ? 0 : whatsappMessages,
       whatsappCharges,
       chatbotCharges,
       monthlyRecords: {
@@ -1031,8 +1041,8 @@ export default function App() {
           ...currentRec,
           softwareCharges,
           whatsappBillingType: billingType,
-          whatsappRate,
-          whatsappMessages,
+          whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
+          whatsappMessages: billingType === 'per_month' ? 0 : whatsappMessages,
           whatsappCharges,
           chatbotCharges,
           currentMonthTotal,
@@ -1747,8 +1757,13 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'add-client', label: `Add ${term.singular}`, icon: UserPlus },
     { id: 'check-balance', label: 'Check & Balance', icon: CheckSquare },
+    {
+      id: 'school-charges-list',
+      label: `${term.plural} & Partner Cuts`,
+      icon: FileSpreadsheet,
+    },
     { id: 'invoices', label: 'Invoices', icon: FileText },
-    { id: 'invoice-log', label: 'Invoice Log', icon: FileSpreadsheet },
+    { id: 'invoice-log', label: 'Invoice Log', icon: ScrollText },
     { id: 'invoice-editor', label: 'Invoice Editor', icon: Edit3 },
     { id: 'partners', label: 'Partners', icon: Users },
     { id: 'finance-report', label: 'Finance Report', icon: BarChart3 },
@@ -2069,6 +2084,24 @@ export default function App() {
               onQuickWhatsAppInvoice={handleQuickWhatsAppInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               onGenerateAllMonthlyInvoices={handleGenerateAllMonthlyInvoices}
+            />
+          )}
+
+          {activeTab === 'school-charges-list' && (
+            <SchoolChargesAndPartnerListView
+              company={company}
+              term={term}
+              clients={clients}
+              partners={partners}
+              selectedMonth={selectedMonth}
+              setSelectedMonth={setSelectedMonth}
+              setActiveTab={setActiveTab}
+              onOpenInvoiceEditor={(clientId, month) => {
+                handleOpenInvoiceInEditor(clientId, month);
+              }}
+              onRecordPayment={(client) => {
+                setActiveTab('check-balance');
+              }}
             />
           )}
 

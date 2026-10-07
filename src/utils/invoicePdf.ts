@@ -127,10 +127,7 @@ export function buildInvoicePdfInstance(
 
   // Brand Logo or Monogram Box
   let textStartX = 18;
-  const pdfLogoUrl =
-    docData.logoDataUrl && docData.logoDataUrl.startsWith('data:image/')
-      ? docData.logoDataUrl
-      : DEFAULT_BRAND_LOGO_DATA_URL;
+  const pdfLogoUrl = resolveActiveLogoUrl(docData.logoDataUrl);
   if (pdfLogoUrl && pdfLogoUrl.startsWith('data:image/')) {
     try {
       pdf.setFillColor(255, 255, 255);
