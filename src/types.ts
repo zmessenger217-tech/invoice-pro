@@ -29,6 +29,7 @@ export interface GeneratedReceiptItem {
   invoiceDate: string;
   dueDate: string;
   softwareCharges: number;
+  whatsappBillingType?: 'per_message' | 'per_month';
   whatsappRate: number;
   whatsappMessages: number;
   whatsappCharges: number;
@@ -95,6 +96,7 @@ export type PaymentStatus = 'Paid' | 'Partially Paid' | 'Unpaid';
 export interface MonthlyLedgerRecord {
   month: string; // e.g., 'May 2026', 'September 2026', 'October 2026'
   softwareCharges: number;
+  whatsappBillingType?: 'per_message' | 'per_month';
   whatsappRate: number;
   whatsappMessages: number;
   whatsappCharges: number;
@@ -132,6 +134,7 @@ export interface ClientEntity {
   softwareEnabled: boolean;
   softwareCharges: number;
   whatsappEnabled: boolean;
+  whatsappBillingType?: 'per_message' | 'per_month';
   whatsappRate: number;
   whatsappMessages: number;
   whatsappCharges: number;
@@ -204,6 +207,7 @@ export interface InvoiceEditableDocument {
   softwareLabel: string;
   softwareCharges: number;
   whatsappLabel: string;
+  whatsappBillingType?: 'per_message' | 'per_month';
   whatsappRate: number;
   whatsappMessages: number;
   whatsappCharges: number;

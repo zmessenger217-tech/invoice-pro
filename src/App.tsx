@@ -147,6 +147,11 @@ function buildEditableInvoiceFromClient(
   }
 
   const rec = getOrComputeMonthlyRecord(client, month);
+  const isPerMonthWhatsapp = rec.whatsappBillingType === 'per_month';
+  const whatsappLabel = isPerMonthWhatsapp
+    ? 'WhatsApp Charges'
+    : `WhatsApp Charges (${rec.whatsappRate} × ${rec.whatsappMessages.toLocaleString()})`;
+
   return {
     id: `${client.id}-${month}`,
     clientId: client.id,
@@ -169,7 +174,8 @@ function buildEditableInvoiceFromClient(
     clientPhone: client.phone,
     softwareLabel,
     softwareCharges: rec.softwareCharges,
-    whatsappLabel: `WhatsApp Charges (${rec.whatsappRate} × ${rec.whatsappMessages.toLocaleString()})`,
+    whatsappLabel,
+    whatsappBillingType: rec.whatsappBillingType || 'per_message',
     whatsappRate: rec.whatsappRate,
     whatsappMessages: rec.whatsappMessages,
     whatsappCharges: rec.whatsappCharges,
@@ -184,6 +190,7 @@ function buildEditableInvoiceFromClient(
     showQrCode,
     logoDataUrl: resolveActiveLogoUrl(company.logoDataUrl),
     qrCodeDataUrl: company.qrCodeDataUrl,
+    qrCodes: company.qrCodes,
     theme,
     status: rec.status,
   };
@@ -484,12 +491,19 @@ export default function App() {
     const month = docData.billingMonth || selectedMonth;
     const currentRec = getOrComputeMonthlyRecord(target, month);
 
+    const billingType =
+      docData.whatsappBillingType ||
+      currentRec.whatsappBillingType ||
+      target.whatsappBillingType ||
+      'per_message';
     const softwareCharges = Number(docData.softwareCharges) || 0;
     const whatsappRate = Number(docData.whatsappRate) || 0;
     const whatsappMessages = Number(docData.whatsappMessages) || 0;
     const whatsappCharges =
-      Number(docData.whatsappCharges) ||
-      Math.round(whatsappRate * whatsappMessages);
+      billingType === 'per_month'
+        ? Number(docData.whatsappCharges) || 0
+        : Number(docData.whatsappCharges) ||
+          Math.round(whatsappRate * whatsappMessages);
     const chatbotCharges = Number(docData.chatbotCharges) || 0;
     const previousDues = Number(docData.previousDues) || 0;
     const currentMonthTotal =
@@ -510,6 +524,7 @@ export default function App() {
       phone: docData.clientPhone || target.phone,
       address: docData.clientAddress || target.address,
       softwareCharges,
+      whatsappBillingType: billingType,
       whatsappRate,
       whatsappMessages,
       whatsappCharges,
@@ -519,6 +534,7 @@ export default function App() {
         [month]: {
           ...currentRec,
           softwareCharges,
+          whatsappBillingType: billingType,
           whatsappRate,
           whatsappMessages,
           whatsappCharges,
@@ -551,6 +567,7 @@ export default function App() {
       invoiceDate: docData.invoiceDate,
       dueDate: docData.dueDate,
       softwareCharges,
+      whatsappBillingType: billingType,
       whatsappRate,
       whatsappMessages,
       whatsappCharges,
@@ -836,6 +853,10 @@ export default function App() {
     for (let i = 0; i < targets.length; i++) {
       const client = targets[i];
       const currentRec = getOrComputeMonthlyRecord(client, month);
+      const clientBillingType =
+        client.whatsappBillingType ||
+        currentRec.whatsappBillingType ||
+        'per_message';
 
       const softwareCharges = client.softwareEnabled
         ? Number(client.softwareCharges) || 0
@@ -846,7 +867,11 @@ export default function App() {
       const whatsappMessages = client.whatsappEnabled
         ? Number(client.whatsappMessages) || 0
         : Number(currentRec.whatsappMessages) || 0;
-      const whatsappCharges = Math.round(whatsappRate * whatsappMessages);
+      const whatsappCharges = client.whatsappEnabled
+        ? clientBillingType === 'per_month'
+          ? Number(client.whatsappCharges) || 0
+          : Math.round(whatsappRate * whatsappMessages)
+        : Number(currentRec.whatsappCharges) || 0;
       const chatbotCharges = client.chatbotEnabled
         ? Number(client.chatbotCharges) || 0
         : Number(currentRec.chatbotCharges) || 0;
@@ -867,6 +892,7 @@ export default function App() {
       const updatedClient: ClientEntity = {
         ...client,
         softwareCharges,
+        whatsappBillingType: clientBillingType,
         whatsappRate,
         whatsappMessages,
         whatsappCharges,
@@ -876,6 +902,7 @@ export default function App() {
           [month]: {
             ...currentRec,
             softwareCharges,
+            whatsappBillingType: clientBillingType,
             whatsappRate,
             whatsappMessages,
             whatsappCharges,
@@ -907,6 +934,7 @@ export default function App() {
         invoiceDate: docData.invoiceDate,
         dueDate: docData.dueDate,
         softwareCharges,
+        whatsappBillingType: clientBillingType,
         whatsappRate,
         whatsappMessages,
         whatsappCharges,

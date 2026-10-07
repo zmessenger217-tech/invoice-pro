@@ -34,17 +34,20 @@ export function getYearFromMonthString(monthStr: string): number {
   return new Date().getFullYear();
 }
 
-export function generateAvailableMonths(startYear = 2024, endYear = 2035): string[] {
-  const list: string[] = [];
-  for (let y = startYear; y <= endYear; y++) {
-    for (const m of MONTH_NAMES) {
-      list.push(`${m} ${y}`);
-    }
-  }
-  return list;
+export function getCurrentYear(): number {
+  return new Date().getFullYear();
 }
 
-export const AVAILABLE_MONTHS: string[] = generateAvailableMonths(2024, 2035);
+export function getCurrentYearMonths(year?: number): string[] {
+  const y = typeof year === 'number' && !isNaN(year) ? year : new Date().getFullYear();
+  return MONTH_NAMES.map((m) => `${m} ${y}`);
+}
+
+/**
+ * By default contains all 12 months of the current year (e.g., January 2026 ... December 2026).
+ * Automatically updates every year.
+ */
+export const AVAILABLE_MONTHS: string[] = getCurrentYearMonths();
 
 export function getCurrentMonthLabel(): string {
   const now = new Date();
@@ -217,10 +220,15 @@ export function getOrComputeMonthlyRecord(
       : existing?.previousDuesLabel || `Previous Dues (${prevMonth})`;
 
   if (existing) {
-    const whatsappCharges = Math.round(
-      (Number(existing.whatsappRate) || 0) *
-        (Number(existing.whatsappMessages) || 0)
-    );
+    const billingType =
+      existing.whatsappBillingType ?? client.whatsappBillingType ?? 'per_message';
+    const whatsappCharges =
+      billingType === 'per_month'
+        ? Number(existing.whatsappCharges) || 0
+        : Math.round(
+            (Number(existing.whatsappRate) || 0) *
+              (Number(existing.whatsappMessages) || 0)
+          );
     const currentMonthTotal =
       (Number(existing.softwareCharges) || 0) +
       whatsappCharges +
@@ -238,6 +246,7 @@ export function getOrComputeMonthlyRecord(
 
     return {
       ...existing,
+      whatsappBillingType: billingType,
       whatsappCharges,
       currentMonthTotal,
       previousDues,
@@ -266,11 +275,14 @@ export function getOrComputeMonthlyRecord(
   }
 
   // Pre-fill from the default charges and WhatsApp rate/messages entered when adding the school
+  const billingType = client.whatsappBillingType || 'per_message';
   const softwareCharges = client.softwareEnabled ? client.softwareCharges : 0;
   const whatsappRate = client.whatsappEnabled ? client.whatsappRate : 0;
   const whatsappMessages = client.whatsappEnabled ? client.whatsappMessages : 0;
   const whatsappCharges = client.whatsappEnabled
-    ? Math.round(whatsappRate * whatsappMessages)
+    ? billingType === 'per_month'
+      ? client.whatsappCharges
+      : Math.round(whatsappRate * whatsappMessages)
     : 0;
   const chatbotCharges = client.chatbotEnabled ? client.chatbotCharges : 0;
   const currentMonthTotal =
@@ -284,6 +296,7 @@ export function getOrComputeMonthlyRecord(
   return {
     month,
     softwareCharges,
+    whatsappBillingType: billingType,
     whatsappRate,
     whatsappMessages,
     whatsappCharges,

@@ -305,7 +305,9 @@ export function buildInvoicePdfInstance(
       no: '02',
       label:
         docData.whatsappLabel ||
-        `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`,
+        (docData.whatsappBillingType === 'per_month'
+          ? 'WhatsApp Charges'
+          : `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`),
       amount: formatCurrency(docData.whatsappCharges, currency),
     },
     {
@@ -478,11 +480,11 @@ export function buildInvoicePdfInstance(
   if (docData.showQrCode !== false) {
     const qrList = getResolvedQrCodes(docData);
     if (qrList.length > 0) {
-      const qrSize = qrList.length > 2 ? 16 : qrList.length === 2 ? 18 : 21;
-      const gap = 3.5;
-      const totalWidth = qrList.length * (qrSize + 4) + (qrList.length - 1) * gap;
+      const qrSize = 25;
+      const gap = 4;
+      const totalWidth = qrList.length * (qrSize + 6) + (qrList.length - 1) * gap;
       let curQrX = pageWidth - 18 - totalWidth;
-      const qrY = pageHeight - 34;
+      const qrY = pageHeight - 39;
 
       for (const qr of qrList) {
         pdf.setFillColor(255, 255, 255);
@@ -490,35 +492,35 @@ export function buildInvoicePdfInstance(
         pdf.roundedRect(
           curQrX,
           qrY - 2,
-          qrSize + 4,
-          qrSize + 8,
-          1.5,
-          1.5,
+          qrSize + 6,
+          qrSize + 10,
+          2,
+          2,
           'FD'
         );
 
         if (qr.dataUrl && qr.dataUrl.startsWith('data:image/')) {
           try {
-            pdf.addImage(qr.dataUrl, curQrX + 2, qrY, qrSize, qrSize);
+            pdf.addImage(qr.dataUrl, curQrX + 3, qrY, qrSize, qrSize);
           } catch {
-            drawMatrixQr(pdf, curQrX + 2, qrY, qrSize);
+            drawMatrixQr(pdf, curQrX + 3, qrY, qrSize);
           }
         } else {
-          drawMatrixQr(pdf, curQrX + 2, qrY, qrSize);
+          drawMatrixQr(pdf, curQrX + 3, qrY, qrSize);
         }
 
-        pdf.setFontSize(qrList.length > 2 ? 5.5 : 6.5);
+        pdf.setFontSize(7.5);
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(51, 65, 85);
-        const truncatedLabel = (qr.label || 'Scan to Pay').slice(0, 14);
+        const truncatedLabel = (qr.label || 'Scan to Pay').slice(0, 16);
         pdf.text(
           truncatedLabel,
-          curQrX + (qrSize + 4) / 2,
-          qrY + qrSize + 4,
+          curQrX + (qrSize + 6) / 2,
+          qrY + qrSize + 5.5,
           { align: 'center' }
         );
 
-        curQrX += qrSize + 4 + gap;
+        curQrX += qrSize + 6 + gap;
       }
     }
   }
@@ -605,15 +607,15 @@ export function printInvoiceDocument(
   const resolvedQrs = getResolvedQrCodes(docData);
   const qrHtml =
     docData.showQrCode !== false && resolvedQrs.length > 0
-      ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;">
+      ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           ${resolvedQrs
             .map(
               (qr) => `
-            <div style="background:#fff;border:1px solid #cbd5e1;border-radius:10px;padding:6px;text-align:center;min-width:76px;">
+            <div style="background:#fff;border:1px solid #cbd5e1;border-radius:12px;padding:8px;text-align:center;min-width:96px;">
               ${
                 qr.dataUrl && qr.dataUrl.startsWith('data:image/')
-                  ? `<img src="${qr.dataUrl}" alt="QR" style="width:58px;height:58px;object-fit:contain;display:block;margin:0 auto;" />`
-                  : `<div style="width:58px;height:58px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:#f8fafc;padding:4px;border:1px solid #e2e8f0;">
+                  ? `<img src="${qr.dataUrl}" alt="QR" style="width:84px;height:84px;object-fit:contain;display:block;margin:0 auto;" />`
+                  : `<div style="width:84px;height:84px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:#f8fafc;padding:4px;border:1px solid #e2e8f0;">
                       <div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div>
                       <div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div>
                       <div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div>
@@ -621,7 +623,7 @@ export function printInvoiceDocument(
                       <div style="background:#0f172a"></div><div style="background:#0f172a"></div><div></div><div style="background:#0f172a"></div><div style="background:#0f172a"></div>
                     </div>`
               }
-              <div style="font-size:9px;font-weight:700;color:#334155;margin-top:3px;max-width:85px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${
+              <div style="font-size:10px;font-weight:700;color:#334155;margin-top:4px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${
                 qr.label || 'Scan to Pay'
               }</div>
             </div>`
@@ -750,7 +752,7 @@ export function printInvoiceDocument(
               </tr>
               <tr>
                 <td class="mono" style="color:#94a3b8;font-weight:700;">02</td>
-                <td style="font-weight:600;">${docData.whatsappLabel || `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`}</td>
+                <td style="font-weight:600;">${docData.whatsappLabel || (docData.whatsappBillingType === 'per_month' ? 'WhatsApp Charges' : `WhatsApp Charges (${docData.whatsappRate} × ${docData.whatsappMessages})`)}</td>
                 <td class="mono" style="text-align:right;font-weight:700;">${formatCurrency(docData.whatsappCharges, currency)}</td>
               </tr>
               <tr>

@@ -122,8 +122,13 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   const [softwareEnabled, setSoftwareEnabled] = useState(true);
   const [softwareCharges, setSoftwareCharges] = useState<string>('');
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
+  const [whatsappBillingType, setWhatsappBillingType] = useState<
+    'per_message' | 'per_month'
+  >('per_message');
   const [whatsappRate, setWhatsappRate] = useState<string>('');
   const [whatsappMessages, setWhatsappMessages] = useState<string>('');
+  const [whatsappMonthlyCharges, setWhatsappMonthlyCharges] =
+    useState<string>('');
   const [chatbotEnabled, setChatbotEnabled] = useState(true);
   const [chatbotCharges, setChatbotCharges] = useState<string>('');
   // Partner Payment State
@@ -202,6 +207,8 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
 
   const loadClientIntoForm = (c: ClientEntity) => {
     const monthRec = c.monthlyRecords[selectedMonth];
+    const billingType =
+      monthRec?.whatsappBillingType || c.whatsappBillingType || 'per_message';
     setEditingClientId(c.id);
     setClientName(c.name);
     setClientAddress(c.address);
@@ -209,8 +216,30 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     setSoftwareEnabled(c.softwareEnabled);
     setSoftwareCharges(String(c.softwareCharges));
     setWhatsappEnabled(c.whatsappEnabled);
-    setWhatsappRate(String(c.whatsappRate));
-    setWhatsappMessages(String(c.whatsappMessages));
+    setWhatsappBillingType(billingType);
+    if (billingType === 'per_month') {
+      setWhatsappMonthlyCharges(
+        monthRec?.whatsappCharges !== undefined
+          ? String(monthRec.whatsappCharges)
+          : c.whatsappCharges !== undefined
+          ? String(c.whatsappCharges)
+          : ''
+      );
+      setWhatsappRate('');
+      setWhatsappMessages('');
+    } else {
+      setWhatsappRate(
+        monthRec?.whatsappRate !== undefined
+          ? String(monthRec.whatsappRate)
+          : String(c.whatsappRate)
+      );
+      setWhatsappMessages(
+        monthRec?.whatsappMessages !== undefined
+          ? String(monthRec.whatsappMessages)
+          : String(c.whatsappMessages)
+      );
+      setWhatsappMonthlyCharges('');
+    }
     setChatbotEnabled(c.chatbotEnabled);
     setChatbotCharges(String(c.chatbotCharges));
     // Load partner payment settings
@@ -251,8 +280,10 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     setSoftwareEnabled(true);
     setSoftwareCharges('');
     setWhatsappEnabled(true);
+    setWhatsappBillingType('per_message');
     setWhatsappRate('');
     setWhatsappMessages('');
+    setWhatsappMonthlyCharges('');
     setChatbotEnabled(true);
     setChatbotCharges('');
     setPartnerPaymentEnabled(false);
@@ -284,8 +315,13 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   const numSoftware = softwareEnabled ? Number(softwareCharges) || 0 : 0;
   const numRate = whatsappEnabled ? Number(whatsappRate) || 0 : 0;
   const numMessages = whatsappEnabled ? Number(whatsappMessages) || 0 : 0;
+  const numMonthlyWhatsapp = whatsappEnabled
+    ? Number(whatsappMonthlyCharges) || 0
+    : 0;
   const calculatedWhatsappTotal = whatsappEnabled
-    ? Math.round(numRate * numMessages)
+    ? whatsappBillingType === 'per_month'
+      ? numMonthlyWhatsapp
+      : Math.round(numRate * numMessages)
     : 0;
   const numChatbot = chatbotEnabled ? Number(chatbotCharges) || 0 : 0;
   const calculatedClientTotal =
@@ -319,8 +355,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     const updatedRecord = {
       month: selectedMonth,
       softwareCharges: numSoftware,
-      whatsappRate: numRate,
-      whatsappMessages: numMessages,
+      whatsappBillingType,
+      whatsappRate: whatsappBillingType === 'per_month' ? 0 : numRate,
+      whatsappMessages: whatsappBillingType === 'per_month' ? 0 : numMessages,
       whatsappCharges: calculatedWhatsappTotal,
       chatbotCharges: numChatbot,
       previousDues: prevDues,
@@ -368,8 +405,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       softwareEnabled,
       softwareCharges: numSoftware,
       whatsappEnabled,
-      whatsappRate: numRate,
-      whatsappMessages: numMessages,
+      whatsappBillingType,
+      whatsappRate: whatsappBillingType === 'per_month' ? 0 : numRate,
+      whatsappMessages: whatsappBillingType === 'per_month' ? 0 : numMessages,
       whatsappCharges: calculatedWhatsappTotal,
       chatbotEnabled,
       chatbotCharges: numChatbot,
@@ -704,9 +742,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                 </div>
               </div>
 
-              {/* 2. WhatsApp Charges (Rate x Messages = WhatsApp Charges) */}
+              {/* 2. WhatsApp Charges (Selection: Per Messages vs Charges Per Month) */}
               <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/30 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-900 cursor-pointer">
                     <input
                       type="checkbox"
@@ -716,50 +754,112 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     />
                     <span>WhatsApp Charges</span>
                   </label>
-                  <div className="text-right">
+
+                  {whatsappEnabled && (
+                    <div className="inline-flex rounded-lg bg-white border border-blue-200 p-0.5 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => setWhatsappBillingType('per_message')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                          whatsappBillingType === 'per_message'
+                            ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Per Messages
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setWhatsappBillingType('per_month')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                          whatsappBillingType === 'per_month'
+                            ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Charges Per Month
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="text-right ml-auto">
                     <div className="text-sm font-bold text-slate-900 font-mono tabular-nums">
                       {formatCurrency(calculatedWhatsappTotal, currency)}
                     </div>
                     <div className="text-[11px] font-mono text-slate-500">
-                      {numRate} × {numMessages.toLocaleString()} ={' '}
-                      {calculatedWhatsappTotal.toLocaleString()}
+                      {whatsappBillingType === 'per_month'
+                        ? 'Flat Monthly Charge'
+                        : `${numRate} × ${numMessages.toLocaleString()} = ${calculatedWhatsappTotal.toLocaleString()}`}
                     </div>
                   </div>
                 </div>
 
                 {whatsappEnabled && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                        Rate per message ({currency})
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        required={whatsappEnabled}
-                        value={whatsappRate}
-                        onChange={(e) => setWhatsappRate(e.target.value)}
-                        placeholder="0.50"
-                        className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 bg-white focus:border-blue-600 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                        Number of messages
-                      </label>
-                      <input
-                        type="number"
-                        step="1"
-                        min={0}
-                        required={whatsappEnabled}
-                        value={whatsappMessages}
-                        onChange={(e) => setWhatsappMessages(e.target.value)}
-                        placeholder="20000"
-                        className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 bg-white focus:border-blue-600 focus:outline-none"
-                      />
-                    </div>
-                  </div>
+                  <>
+                    {whatsappBillingType === 'per_month' ? (
+                      <div className="p-3.5 bg-white/90 rounded-lg border border-blue-200/80 space-y-1.5">
+                        <div className="flex items-center justify-between gap-4 flex-wrap">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-800">
+                              Monthly WhatsApp Charges ({currency})
+                            </label>
+                            <span className="text-[11px] text-blue-700 font-medium">
+                              Note: Rate × message calculation will NOT appear on the invoice.
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400 font-mono">
+                              {currency}
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              required={whatsappEnabled && whatsappBillingType === 'per_month'}
+                              value={whatsappMonthlyCharges}
+                              onChange={(e) =>
+                                setWhatsappMonthlyCharges(e.target.value)
+                              }
+                              placeholder="2500"
+                              className="w-32 px-3 py-1.5 text-xs font-mono font-semibold text-right rounded-lg border border-slate-200 bg-white focus:border-blue-600 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                            Rate per message ({currency})
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            required={whatsappEnabled && whatsappBillingType === 'per_message'}
+                            value={whatsappRate}
+                            onChange={(e) => setWhatsappRate(e.target.value)}
+                            placeholder="0.50"
+                            className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 bg-white focus:border-blue-600 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                            Number of messages
+                          </label>
+                          <input
+                            type="number"
+                            step="1"
+                            min={0}
+                            required={whatsappEnabled && whatsappBillingType === 'per_message'}
+                            value={whatsappMessages}
+                            onChange={(e) => setWhatsappMessages(e.target.value)}
+                            placeholder="20000"
+                            className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 bg-white focus:border-blue-600 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1449,48 +1549,73 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   {term.singular})
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                {(activeModalRecord.whatsappBillingType === 'per_month' ||
+                  paymentModalClient.whatsappBillingType === 'per_month') ? (
                   <div>
-                    <label className="block text-[11px] text-slate-500 mb-1">
-                      WhatsApp Rate per Message
+                    <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                      Monthly WhatsApp Charges ({currency})
                     </label>
                     <input
                       type="number"
-                      step="0.01"
                       min={0}
-                      value={modalWhatsappRate}
-                      onChange={(e) =>
-                        setModalWhatsappRate(Number(e.target.value) || 0)
-                      }
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs"
+                      value={modalWhatsappTotal}
+                      onChange={(e) => {
+                        const val = Number(e.target.value) || 0;
+                        setModalWhatsappRate(val);
+                        setModalWhatsappMessages(1);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs font-semibold"
                     />
+                    <span className="text-[10.5px] text-blue-600 block mt-1">
+                      Fixed per month (calculation will not show on invoice)
+                    </span>
                   </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-500 mb-1">
-                      Number of WhatsApp Messages
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      min={0}
-                      value={modalWhatsappMessages}
-                      onChange={(e) =>
-                        setModalWhatsappMessages(Number(e.target.value) || 0)
-                      }
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs"
-                    />
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] text-slate-500 mb-1">
+                          WhatsApp Rate per Message
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          value={modalWhatsappRate}
+                          onChange={(e) =>
+                            setModalWhatsappRate(Number(e.target.value) || 0)
+                          }
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-slate-500 mb-1">
+                          Number of WhatsApp Messages
+                        </label>
+                        <input
+                          type="number"
+                          step="1"
+                          min={0}
+                          value={modalWhatsappMessages}
+                          onChange={(e) =>
+                            setModalWhatsappMessages(Number(e.target.value) || 0)
+                          }
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs"
+                        />
+                      </div>
+                    </div>
 
-                <div className="flex items-center justify-between text-[11px] text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg font-mono">
-                  <span>
-                    WhatsApp Charges ({modalWhatsappRate} ×{' '}
-                    {modalWhatsappMessages.toLocaleString()})
-                  </span>
-                  <span className="font-bold">
-                    {formatCurrency(modalWhatsappTotal, currency)}
-                  </span>
-                </div>
+                    <div className="flex items-center justify-between text-[11px] text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg font-mono">
+                      <span>
+                        WhatsApp Charges ({modalWhatsappRate} ×{' '}
+                        {modalWhatsappMessages.toLocaleString()})
+                      </span>
+                      <span className="font-bold">
+                        {formatCurrency(modalWhatsappTotal, currency)}
+                      </span>
+                    </div>
+                  </>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -1856,13 +1981,20 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     const sw = c.softwareEnabled
       ? Number(c.softwareCharges) || 0
       : Number(rec.softwareCharges) || 0;
+    const isPerMonth =
+      c.whatsappBillingType === 'per_month' ||
+      rec.whatsappBillingType === 'per_month';
     const wr = c.whatsappEnabled
       ? Number(c.whatsappRate) || 0
       : Number(rec.whatsappRate) || 0;
     const wm = c.whatsappEnabled
       ? Number(c.whatsappMessages) || 0
       : Number(rec.whatsappMessages) || 0;
-    const wc = Math.round(wr * wm);
+    const wc = c.whatsappEnabled
+      ? isPerMonth
+        ? Number(c.whatsappCharges) || 0
+        : Math.round(wr * wm)
+      : Number(rec.whatsappCharges) || 0;
     const cb = c.chatbotEnabled
       ? Number(c.chatbotCharges) || 0
       : Number(rec.chatbotCharges) || 0;
@@ -1875,8 +2007,12 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     return sum + (c.chatbotEnabled ? Number(c.chatbotCharges) || 0 : 0);
   }, 0);
   const batchTotalWhatsapp = batchActiveClients.reduce((sum, c) => {
-    const wr = c.whatsappEnabled ? Number(c.whatsappRate) || 0 : 0;
-    const wm = c.whatsappEnabled ? Number(c.whatsappMessages) || 0 : 0;
+    if (!c.whatsappEnabled) return sum;
+    if (c.whatsappBillingType === 'per_month') {
+      return sum + (Number(c.whatsappCharges) || 0);
+    }
+    const wr = Number(c.whatsappRate) || 0;
+    const wm = Number(c.whatsappMessages) || 0;
     return sum + Math.round(wr * wm);
   }, 0);
 
@@ -2038,80 +2174,112 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
         </div>
 
         {/* Pre-filled Rate per message, Number of messages, and Charges bar */}
-        {invGeneratorClientId && (
-          <div className="pt-3 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-5 gap-3 items-end text-xs">
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                WhatsApp Rate / Msg
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min={0}
-                value={genWhatsappRate}
-                onChange={(e) =>
-                  setGenWhatsappRate(Number(e.target.value) || 0)
-                }
-                className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-blue-50/30 font-mono text-xs"
-              />
-            </div>
+        {invGeneratorClientId && (() => {
+          const selectedGenClient = clients.find(
+            (c) => c.id === invGeneratorClientId
+          );
+          const isPerMonth =
+            selectedGenClient?.whatsappBillingType === 'per_month';
 
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                No. of Messages
-              </label>
-              <input
-                type="number"
-                step="1"
-                min={0}
-                value={genWhatsappMessages}
-                onChange={(e) =>
-                  setGenWhatsappMessages(Number(e.target.value) || 0)
-                }
-                className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-blue-50/30 font-mono text-xs"
-              />
-            </div>
+          return (
+            <div className="pt-3 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-5 gap-3 items-end text-xs">
+              {isPerMonth ? (
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                    WhatsApp Monthly Charges ({currency})
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={genWhatsappTotal}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 0;
+                      setGenWhatsappRate(val);
+                      setGenWhatsappMessages(1);
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-blue-50/30 font-mono text-xs font-semibold"
+                  />
+                  <span className="text-[10px] text-blue-600 block mt-0.5">
+                    Fixed per month (calculation will not show on invoice)
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                      WhatsApp Rate / Msg
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={genWhatsappRate}
+                      onChange={(e) =>
+                        setGenWhatsappRate(Number(e.target.value) || 0)
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-blue-50/30 font-mono text-xs"
+                    />
+                  </div>
 
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                Software Charges
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={genSoftwareCharges}
-                onChange={(e) =>
-                  setGenSoftwareCharges(Number(e.target.value) || 0)
-                }
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 font-mono text-xs"
-              />
-            </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                      No. of Messages
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      min={0}
+                      value={genWhatsappMessages}
+                      onChange={(e) =>
+                        setGenWhatsappMessages(Number(e.target.value) || 0)
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-blue-50/30 font-mono text-xs"
+                    />
+                  </div>
+                </>
+              )}
 
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                Chatbot Charges
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={genChatbotCharges}
-                onChange={(e) =>
-                  setGenChatbotCharges(Number(e.target.value) || 0)
-                }
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 font-mono text-xs"
-              />
-            </div>
-
-            <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-right">
-              <div className="text-[10px] text-slate-500">
-                WhatsApp: {formatCurrency(genWhatsappTotal, currency)}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                  Software Charges
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={genSoftwareCharges}
+                  onChange={(e) =>
+                    setGenSoftwareCharges(Number(e.target.value) || 0)
+                  }
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 font-mono text-xs"
+                />
               </div>
-              <div className="font-mono font-bold text-slate-900 text-xs">
-                Total: {formatCurrency(genTotal, currency)}
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                  Chatbot Charges
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={genChatbotCharges}
+                  onChange={(e) =>
+                    setGenChatbotCharges(Number(e.target.value) || 0)
+                  }
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 font-mono text-xs"
+                />
+              </div>
+
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-right">
+                <div className="text-[10px] text-slate-500">
+                  WhatsApp: {formatCurrency(genWhatsappTotal, currency)}
+                </div>
+                <div className="font-mono font-bold text-slate-900 text-xs">
+                  Total: {formatCurrency(genTotal, currency)}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Invoices List Table */}
@@ -2166,11 +2334,22 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                         {formatCurrency(rec.softwareCharges, currency)}
                       </td>
                       <td className="py-3.5 px-4 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
-                        {rec.whatsappRate} ×{' '}
-                        {rec.whatsappMessages.toLocaleString()} ={' '}
-                        <span className="font-semibold text-slate-800">
-                          {formatCurrency(rec.whatsappCharges, currency)}
-                        </span>
+                        {rec.whatsappBillingType === 'per_month' ? (
+                          <span className="font-semibold text-slate-800">
+                            {formatCurrency(rec.whatsappCharges, currency)}{' '}
+                            <span className="text-[11px] font-normal text-slate-400">
+                              (Monthly)
+                            </span>
+                          </span>
+                        ) : (
+                          <>
+                            {rec.whatsappRate} ×{' '}
+                            {rec.whatsappMessages.toLocaleString()} ={' '}
+                            <span className="font-semibold text-slate-800">
+                              {formatCurrency(rec.whatsappCharges, currency)}
+                            </span>
+                          </>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono font-bold text-purple-700 tabular-nums border border-slate-200 bg-purple-50/10">
                         {formatCurrency(rec.chatbotCharges, currency)}

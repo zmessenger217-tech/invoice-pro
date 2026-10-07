@@ -519,58 +519,139 @@ export const InvoicePreviewAndEditor: React.FC<
               />
             </div>
 
-            {/* WhatsApp Rate & Number of Messages Box */}
+            {/* WhatsApp Billing Mode & Charges Box */}
             <div className="p-3 rounded-xl bg-blue-50/50 border border-blue-200 space-y-2.5">
-              <div className="font-semibold text-slate-900">
-                WhatsApp Charges ({term.singular})
-              </div>
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-[11px] text-slate-600 mb-1">
-                    Rate per message
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    value={invoiceDoc.whatsappRate}
-                    onChange={(e) =>
-                      handleWhatsappRateOrMessagesChange(
-                        Number(e.target.value) || 0,
-                        invoiceDoc.whatsappMessages
-                      )
-                    }
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs"
-                  />
+              <div className="flex items-center justify-between">
+                <div className="font-semibold text-slate-900 text-xs">
+                  WhatsApp Charges ({term.singular})
                 </div>
-                <div>
-                  <label className="block text-[11px] text-slate-600 mb-1">
-                    Number of messages
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    min={0}
-                    value={invoiceDoc.whatsappMessages}
-                    onChange={(e) =>
-                      handleWhatsappRateOrMessagesChange(
-                        invoiceDoc.whatsappRate,
-                        Number(e.target.value) || 0
-                      )
-                    }
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs"
-                  />
+                {/* Mode Selector Toggle */}
+                <div className="inline-flex rounded-lg bg-blue-100/70 p-0.5 text-[11px] font-medium">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextLabel = `WhatsApp Charges (${invoiceDoc.whatsappRate} × ${invoiceDoc.whatsappMessages.toLocaleString()})`;
+                      const computedWhatsapp = Math.round(
+                        (invoiceDoc.whatsappRate || 0) *
+                          (invoiceDoc.whatsappMessages || 0)
+                      );
+                      onChangeInvoiceDoc({
+                        ...invoiceDoc,
+                        whatsappBillingType: 'per_message',
+                        whatsappLabel: nextLabel,
+                        whatsappCharges:
+                          computedWhatsapp > 0
+                            ? computedWhatsapp
+                            : invoiceDoc.whatsappCharges,
+                      });
+                    }}
+                    className={`px-2 py-0.5 rounded-md transition-all ${
+                      invoiceDoc.whatsappBillingType !== 'per_month'
+                        ? 'bg-white text-blue-800 font-bold shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Per Message
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChangeInvoiceDoc({
+                        ...invoiceDoc,
+                        whatsappBillingType: 'per_month',
+                        whatsappLabel: 'WhatsApp Charges',
+                      });
+                    }}
+                    className={`px-2 py-0.5 rounded-md transition-all ${
+                      invoiceDoc.whatsappBillingType === 'per_month'
+                        ? 'bg-white text-blue-800 font-bold shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Per Month (Fixed)
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center justify-between text-[11px] font-mono text-blue-700">
-                <span>
-                  {invoiceDoc.whatsappRate} ×{' '}
-                  {invoiceDoc.whatsappMessages.toLocaleString()}
-                </span>
-                <span className="font-bold">
-                  = {formatCurrency(invoiceDoc.whatsappCharges, currency)}
-                </span>
-              </div>
+
+              {invoiceDoc.whatsappBillingType === 'per_month' ? (
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] text-slate-600">
+                    Monthly WhatsApp Charges ({currency})
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-mono">
+                      {currency}
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={invoiceDoc.whatsappCharges}
+                      onChange={(e) => {
+                        const val = Number(e.target.value) || 0;
+                        onChangeInvoiceDoc({
+                          ...invoiceDoc,
+                          whatsappCharges: val,
+                          whatsappLabel: 'WhatsApp Charges',
+                        });
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono font-semibold text-xs text-right focus:border-blue-600 focus:outline-none"
+                    />
+                  </div>
+                  <p className="text-[10.5px] text-blue-700/90 italic">
+                    ✓ Fixed per month — calculation is NOT shown on the invoice.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] text-slate-600 mb-1">
+                        Rate per message
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={invoiceDoc.whatsappRate}
+                        onChange={(e) =>
+                          handleWhatsappRateOrMessagesChange(
+                            Number(e.target.value) || 0,
+                            invoiceDoc.whatsappMessages
+                          )
+                        }
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-600 mb-1">
+                        Number of messages
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min={0}
+                        value={invoiceDoc.whatsappMessages}
+                        onChange={(e) =>
+                          handleWhatsappRateOrMessagesChange(
+                            invoiceDoc.whatsappRate,
+                            Number(e.target.value) || 0
+                          )
+                        }
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-mono text-blue-700">
+                    <span>
+                      {invoiceDoc.whatsappRate} ×{' '}
+                      {invoiceDoc.whatsappMessages.toLocaleString()}
+                    </span>
+                    <span className="font-bold">
+                      = {formatCurrency(invoiceDoc.whatsappCharges, currency)}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Line Items */}
@@ -1155,59 +1236,110 @@ export const InvoicePreviewAndEditor: React.FC<
                 </div>
               </div>
 
-              {/* Custom Uploaded QR Code or Default Vector QR */}
+              {/* Custom Uploaded QR Codes or Default Vector QR */}
               {invoiceDoc.showQrCode !== false && (
-                <div className="flex flex-col items-center bg-white p-3 rounded-xl border border-slate-200 shadow-2xs shrink-0 self-start sm:self-auto">
-                  <label
-                    title="Click to upload custom QR code image"
-                    className="cursor-pointer group"
-                  >
-                    {invoiceDoc.qrCodeDataUrl ? (
-                      <img
-                        src={invoiceDoc.qrCodeDataUrl}
-                        alt="Payment QR Code"
-                        referrerPolicy="no-referrer"
-                        className="w-16 h-16 object-contain rounded group-hover:opacity-85 transition-opacity"
-                      />
-                    ) : (
-                      <svg
-                        className="w-16 h-16 text-slate-900 group-hover:text-blue-700 transition-colors"
-                        viewBox="0 0 21 21"
-                        fill="currentColor"
+                <div className="flex items-center gap-3 flex-wrap justify-end shrink-0 self-start sm:self-auto">
+                  {(invoiceDoc.qrCodes && invoiceDoc.qrCodes.length > 0
+                    ? invoiceDoc.qrCodes
+                    : [
+                        {
+                          id: 'qr-single',
+                          label: invoiceDoc.qrLabel || 'Scan to Pay',
+                          dataUrl: invoiceDoc.qrCodeDataUrl || '',
+                        },
+                      ]
+                  ).map((qr, idx) => (
+                    <div
+                      key={qr.id || idx}
+                      className="flex flex-col items-center bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs shrink-0"
+                    >
+                      <label
+                        title="Click to upload custom QR code image"
+                        className="cursor-pointer group"
                       >
-                        <path d="M0 0h7v7H0V0zm1 1v5h5V1H1zm1 1h3v3H2V2z" />
-                        <path d="M14 0h7v7h-7V0zm1 1v5h5V1h-5zm1 1h3v3h-3V2z" />
-                        <path d="M0 14h7v7H0v-7zm1 1v5h5v-5H1zm1 1h3v3H2v-3z" />
-                        <rect x="8" y="1" width="2" height="2" />
-                        <rect x="11" y="2" width="2" height="2" />
-                        <rect x="8" y="5" width="3" height="2" />
-                        <rect x="1" y="8" width="3" height="2" />
-                        <rect x="6" y="8" width="2" height="3" />
-                        <rect x="10" y="9" width="3" height="3" />
-                        <rect x="15" y="8" width="2" height="2" />
-                        <rect x="18" y="10" width="3" height="2" />
-                        <rect x="8" y="14" width="2" height="3" />
-                        <rect x="12" y="13" width="3" height="2" />
-                        <rect x="16" y="14" width="2" height="3" />
-                        <rect x="11" y="17" width="3" height="3" />
-                        <rect x="18" y="18" width="3" height="3" />
-                      </svg>
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) =>
-                        handleUploadImageField('qrCodeDataUrl', e)
-                      }
-                      className="hidden"
-                    />
-                  </label>
-                  <input
-                    type="text"
-                    value={invoiceDoc.qrLabel}
-                    onChange={(e) => updateField('qrLabel', e.target.value)}
-                    className="text-[10px] font-bold text-slate-700 mt-1.5 text-center bg-transparent border-b border-transparent hover:border-blue-300 focus:border-blue-600 focus:outline-none w-20"
-                  />
+                        {qr.dataUrl ? (
+                          <img
+                            src={qr.dataUrl}
+                            alt={qr.label || 'Payment QR Code'}
+                            referrerPolicy="no-referrer"
+                            className="w-24 h-24 object-contain rounded group-hover:opacity-85 transition-opacity"
+                          />
+                        ) : (
+                          <svg
+                            className="w-24 h-24 text-slate-900 group-hover:text-blue-700 transition-colors"
+                            viewBox="0 0 21 21"
+                            fill="currentColor"
+                          >
+                            <path d="M0 0h7v7H0V0zm1 1v5h5V1H1zm1 1h3v3H2V2z" />
+                            <path d="M14 0h7v7h-7V0zm1 1v5h5V1h-5zm1 1h3v3h-3V2z" />
+                            <path d="M0 14h7v7H0v-7zm1 1v5h5v-5H1zm1 1h3v3H2v-3z" />
+                            <rect x="8" y="1" width="2" height="2" />
+                            <rect x="11" y="2" width="2" height="2" />
+                            <rect x="8" y="5" width="3" height="2" />
+                            <rect x="1" y="8" width="3" height="2" />
+                            <rect x="6" y="8" width="2" height="3" />
+                            <rect x="10" y="9" width="3" height="3" />
+                            <rect x="15" y="8" width="2" height="2" />
+                            <rect x="18" y="10" width="3" height="2" />
+                            <rect x="8" y="14" width="2" height="3" />
+                            <rect x="12" y="13" width="3" height="2" />
+                            <rect x="16" y="14" width="2" height="3" />
+                            <rect x="11" y="17" width="3" height="3" />
+                            <rect x="18" y="18" width="3" height="3" />
+                          </svg>
+                        )}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              if (typeof reader.result === 'string') {
+                                if (
+                                  invoiceDoc.qrCodes &&
+                                  invoiceDoc.qrCodes.length > 0
+                                ) {
+                                  const updatedQrs = [...invoiceDoc.qrCodes];
+                                  updatedQrs[idx] = {
+                                    ...updatedQrs[idx],
+                                    dataUrl: reader.result,
+                                  };
+                                  updateField('qrCodes', updatedQrs);
+                                } else {
+                                  updateField('qrCodeDataUrl', reader.result);
+                                }
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                      <input
+                        type="text"
+                        value={qr.label}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (
+                            invoiceDoc.qrCodes &&
+                            invoiceDoc.qrCodes.length > 0
+                          ) {
+                            const updatedQrs = [...invoiceDoc.qrCodes];
+                            updatedQrs[idx] = {
+                              ...updatedQrs[idx],
+                              label: val,
+                            };
+                            updateField('qrCodes', updatedQrs);
+                          } else {
+                            updateField('qrLabel', val);
+                          }
+                        }}
+                        className="text-[11px] font-bold text-slate-700 mt-2 text-center bg-transparent border-b border-transparent hover:border-blue-300 focus:border-blue-600 focus:outline-none w-28"
+                      />
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
