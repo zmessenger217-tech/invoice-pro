@@ -113,6 +113,8 @@ export interface MonthlyLedgerRecord {
   invoiceNumber: string;
   invoiceDate: string;
   dueDate?: string;
+  invoiceGenerated?: boolean;
+  invoiceGeneratedAt?: string;
   payments: PaymentTransaction[];
   // Partner Payment & Service Commission details for this school/client in this month
   partnerId?: string;

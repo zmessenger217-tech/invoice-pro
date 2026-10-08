@@ -127,6 +127,9 @@ export const InvoicePreviewAndEditor: React.FC<
   const handleSaveInvoice = () => {
     const updatedDoc: InvoiceEditableDocument = {
       ...invoiceDoc,
+      logoDataUrl: resolveActiveLogoUrl(
+        invoiceDoc.logoDataUrl || company.logoDataUrl
+      ),
       qrCodes: effectiveQrCodes,
       qrCodeDataUrl: effectiveQrCodes[0]?.dataUrl || invoiceDoc.qrCodeDataUrl,
     };
@@ -239,6 +242,14 @@ export const InvoicePreviewAndEditor: React.FC<
 
   const docWithResolvedQrs: InvoiceEditableDocument = {
     ...invoiceDoc,
+    logoDataUrl: resolveActiveLogoUrl(
+      invoiceDoc.logoDataUrl || company.logoDataUrl
+    ),
+    companyName: invoiceDoc.companyName || company.name || 'Your Company Name',
+    companyTagline: invoiceDoc.companyTagline || company.tagline,
+    companyPhone: invoiceDoc.companyPhone || company.phone,
+    companyEmail: invoiceDoc.companyEmail || company.email,
+    companyWebsite: invoiceDoc.companyWebsite || company.website,
     qrCodes: effectiveQrCodes,
     qrCodeDataUrl: effectiveQrCodes[0]?.dataUrl || invoiceDoc.qrCodeDataUrl,
   };
@@ -256,7 +267,7 @@ export const InvoicePreviewAndEditor: React.FC<
       docWithResolvedQrs,
       currency
     );
-    setToastMessage(`Downloaded PDF as "${filename}"`);
+    setToastMessage(`Downloaded PDF as "${filename}" with Company Logo.`);
     setTimeout(() => setToastMessage(null), 4500);
   };
 
@@ -273,7 +284,9 @@ export const InvoicePreviewAndEditor: React.FC<
       whatsappUrl: res.whatsappUrl,
       messageText: res.messageText,
     });
-    setToastMessage('Invoice ready to share on WhatsApp (no auto-download)');
+    setToastMessage(
+      'Invoice ready to send on WhatsApp with company logo embedded in attached PDF!'
+    );
     setTimeout(() => setToastMessage(null), 4500);
   };
 
@@ -1624,7 +1637,43 @@ export const InvoicePreviewAndEditor: React.FC<
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2.5">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200/70">
+                <div className="flex items-center gap-2">
+                  <img
+                    src={resolveActiveLogoUrl(docWithResolvedQrs.logoDataUrl)}
+                    alt="Company Logo"
+                    className="w-7 h-7 rounded-lg object-contain bg-white p-0.5 border border-slate-200"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-900 text-[11px] leading-tight">
+                      {docWithResolvedQrs.companyName}
+                    </div>
+                    <div className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      <span>Company Logo Included</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadInvoicePdfWithClientName(
+                      docWithResolvedQrs,
+                      currency
+                    );
+                    setToastMessage(
+                      `Downloaded invoice PDF with company logo for ${invoiceDoc.clientName}`
+                    );
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1 border border-blue-200 shadow-2xs"
+                  title="Download the PDF invoice with company logo to attach"
+                >
+                  <Download className="w-3 h-3 text-blue-600" />
+                  <span>Download PDF</span>
+                </button>
+              </div>
+
               <div className="flex items-center justify-between text-slate-500">
                 <span>Recipient ({term.singular}):</span>
                 <span className="font-semibold text-slate-900">

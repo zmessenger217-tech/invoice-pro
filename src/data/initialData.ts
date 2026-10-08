@@ -280,6 +280,8 @@ export function getOrComputeMonthlyRecord(
       // Always ensure invoiceDate and dueDate align with the selected month
       invoiceDate: getIssueDateForMonth(month, existing.invoiceDate),
       dueDate: getDueDateForMonth(month, existing.dueDate),
+      invoiceGenerated: existing.invoiceGenerated ?? false,
+      invoiceGeneratedAt: existing.invoiceGeneratedAt,
     };
   }
 
@@ -340,6 +342,7 @@ export function getOrComputeMonthlyRecord(
     invoiceNumber: `INV-${numSuffix}`,
     invoiceDate: getIssueDateForMonth(month),
     dueDate: getDueDateForMonth(month),
+    invoiceGenerated: false,
     payments: [],
     partnerId: client.partnerId,
     partnerName: client.partnerName,
@@ -350,6 +353,22 @@ export function getOrComputeMonthlyRecord(
     partnerTotalPayment: client.partnerTotalPayment,
     partnerNote: client.partnerNote,
   };
+}
+
+/**
+ * Checks whether an invoice has actually been generated for a specific client in a specific month.
+ * Invoices of one month do NOT show on the next month until the user generates them.
+ */
+export function isClientInvoiceGenerated(
+  client: ClientEntity,
+  month: string,
+  receiptLog?: { clientId: string; month: string }[]
+): boolean {
+  if (receiptLog && receiptLog.some((r) => r.clientId === client.id && r.month === month)) {
+    return true;
+  }
+  const rec = client.monthlyRecords?.[month];
+  return Boolean(rec?.invoiceGenerated);
 }
 
 export const INITIAL_COMPANY_PROFILE: CompanyProfile = {

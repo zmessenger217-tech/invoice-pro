@@ -125,49 +125,68 @@ export function buildInvoicePdfInstance(
   pdf.setFillColor(...palette.accent);
   pdf.rect(0, 42, pageWidth, 2, 'F');
 
-  // Brand Logo or Monogram Box
+  // Brand Logo Box (Company Logo)
   let textStartX = 18;
   const pdfLogoUrl = resolveActiveLogoUrl(docData.logoDataUrl);
+  let logoDrawn = false;
+
   if (pdfLogoUrl && pdfLogoUrl.startsWith('data:image/')) {
     try {
       pdf.setFillColor(255, 255, 255);
-      pdf.roundedRect(18, 10, 20, 20, 2.5, 2.5, 'F');
+      pdf.roundedRect(18, 9, 24, 24, 2.5, 2.5, 'F');
       pdf.addImage(
         pdfLogoUrl,
         getImageFormatFromDataUrl(pdfLogoUrl),
         19.5,
-        11.5,
-        17,
-        17
+        10.5,
+        21,
+        21,
+        undefined,
+        'FAST'
       );
-      textStartX = 42;
+      textStartX = 46;
+      logoDrawn = true;
     } catch {
-      pdf.setFillColor(...palette.accent);
-      pdf.roundedRect(18, 11, 16, 16, 2.5, 2.5, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(14);
-      pdf.text(
-        (docData.companyName || 'IP').slice(0, 2).toUpperCase(),
-        26,
-        21.5,
-        { align: 'center' }
-      );
-      textStartX = 38;
+      // If custom logo image fails to draw, fallback to default brand logo data URL
+      try {
+        if (
+          pdfLogoUrl !== DEFAULT_BRAND_LOGO_DATA_URL &&
+          DEFAULT_BRAND_LOGO_DATA_URL.startsWith('data:image/')
+        ) {
+          pdf.setFillColor(255, 255, 255);
+          pdf.roundedRect(18, 9, 24, 24, 2.5, 2.5, 'F');
+          pdf.addImage(
+            DEFAULT_BRAND_LOGO_DATA_URL,
+            getImageFormatFromDataUrl(DEFAULT_BRAND_LOGO_DATA_URL),
+            19.5,
+            10.5,
+            21,
+            21,
+            undefined,
+            'FAST'
+          );
+          textStartX = 46;
+          logoDrawn = true;
+        }
+      } catch {
+        // Fallback below
+      }
     }
-  } else {
+  }
+
+  if (!logoDrawn) {
     pdf.setFillColor(...palette.accent);
-    pdf.roundedRect(18, 11, 16, 16, 2.5, 2.5, 'F');
+    pdf.roundedRect(18, 10, 20, 20, 2.5, 2.5, 'F');
     pdf.setTextColor(255, 255, 255);
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(14);
     pdf.text(
       (docData.companyName || 'IP').slice(0, 2).toUpperCase(),
-      26,
-      21.5,
+      28,
+      22.5,
       { align: 'center' }
     );
-    textStartX = 38;
+    textStartX = 42;
   }
 
   // Company Name, Tagline & Header Note

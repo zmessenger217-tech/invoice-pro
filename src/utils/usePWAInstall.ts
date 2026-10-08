@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import bundledBrandLogoUrl from '../assets/images/invoicepro_logo_official_1791219610311.jpg';
+import bundledBrandLogoInline from '../assets/images/invoicepro_logo_official_1791219610311.jpg?inline';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -82,19 +83,33 @@ function createInlineBrandLogoDataUrl(): string {
   }
 }
 
-export const DEFAULT_BRAND_LOGO_DATA_URL = createInlineBrandLogoDataUrl();
+const inlineDefaultLogo =
+  typeof bundledBrandLogoInline === 'string' &&
+  bundledBrandLogoInline.startsWith('data:image/')
+    ? bundledBrandLogoInline
+    : createInlineBrandLogoDataUrl();
 
-// Bundled URL resolved by Vite for production deployments (Vercel, Netlify, etc.)
+export const DEFAULT_BRAND_LOGO_DATA_URL = inlineDefaultLogo;
+
+// Bundled URL or guaranteed Data URL
 export const DEFAULT_BRAND_LOGO_PATH =
-  bundledBrandLogoUrl || DEFAULT_BRAND_LOGO_DATA_URL;
+  DEFAULT_BRAND_LOGO_DATA_URL || bundledBrandLogoUrl;
 
 /**
- * Ensures any stale dev path ('/src/assets/...') saved in localStorage is replaced
- * with the production-safe bundled logo or base64 data URL.
+ * Ensures any stale dev path ('/src/assets/...') or empty logo is replaced
+ * with a guaranteed base64 data URL so jsPDF, print sheets, and Vercel deployments
+ * always render the official company logo.
  */
 export function resolveActiveLogoUrl(logoDataUrl?: string): string {
-  if (!logoDataUrl || logoDataUrl.trim() === '' || logoDataUrl.startsWith('/src/')) {
-    return DEFAULT_BRAND_LOGO_PATH;
+  if (
+    !logoDataUrl ||
+    typeof logoDataUrl !== 'string' ||
+    logoDataUrl.trim() === '' ||
+    logoDataUrl.startsWith('/src/') ||
+    logoDataUrl.startsWith('/@fs/') ||
+    !logoDataUrl.startsWith('data:image/')
+  ) {
+    return DEFAULT_BRAND_LOGO_DATA_URL;
   }
   return logoDataUrl;
 }

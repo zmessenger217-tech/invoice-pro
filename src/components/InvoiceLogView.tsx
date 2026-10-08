@@ -33,6 +33,7 @@ import {
   prepareWhatsAppPdfShare,
   printInvoiceDocument,
 } from '../utils/invoicePdf';
+import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
 
 interface InvoiceLogViewProps {
   company: CompanyProfile;
@@ -148,6 +149,14 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
 
   const getEnrichedDoc = (item: GeneratedReceiptItem) => ({
     ...item.doc,
+    companyName: item.doc?.companyName || company.name || 'Your Company Name',
+    companyTagline: item.doc?.companyTagline || company.tagline,
+    companyPhone: item.doc?.companyPhone || company.phone,
+    companyEmail: item.doc?.companyEmail || company.email,
+    companyWebsite: item.doc?.companyWebsite || company.website,
+    logoDataUrl: resolveActiveLogoUrl(
+      item.doc?.logoDataUrl || company.logoDataUrl
+    ),
     qrCodes:
       item.doc?.qrCodes && item.doc.qrCodes.length > 0
         ? item.doc.qrCodes

@@ -30,6 +30,7 @@ import {
   getIssueDateForMonth,
   getOrComputeMonthlyRecord,
   getPreviousMonthName,
+  isClientInvoiceGenerated,
 } from '../data/initialData';
 import {
   ActiveNavTab,
@@ -195,6 +196,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   const [genWhatsappRate, setGenWhatsappRate] = useState<number>(0);
   const [genWhatsappMessages, setGenWhatsappMessages] = useState<number>(0);
   const [genChatbotCharges, setGenChatbotCharges] = useState<number>(0);
+  const [invListFilter, setInvListFilter] = useState<
+    'generated' | 'pending' | 'all'
+  >('generated');
 
   // Keep Invoice Generator fields synced and pre-filled with the selected school's saved amounts & WhatsApp rate/messages
   useEffect(() => {
@@ -1251,10 +1255,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       ? getOrComputeMonthlyRecord(paymentModalClient, selectedMonth)
       : null;
 
-    const isModalPerMonth =
-      modalWhatsappBillingType === 'per_month' ||
-      activeModalRecord?.whatsappBillingType === 'per_month' ||
-      paymentModalClient?.whatsappBillingType === 'per_month';
+    const isModalPerMonth = modalWhatsappBillingType === 'per_month';
 
     const modalWhatsappTotal = isModalPerMonth
       ? Number(modalWhatsappMonthlyCharges) || 0
@@ -1617,31 +1618,72 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
 
               {/* Pre-filled Monthly Charges & WhatsApp Rate/Messages Verification */}
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3 text-xs">
-                <div className="font-semibold text-slate-800">
-                  Monthly Charges &amp; WhatsApp Usage (Pre-filled from{' '}
-                  {term.singular})
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-slate-200/80">
+                  <div className="font-semibold text-slate-800">
+                    Monthly Charges &amp; WhatsApp ({term.singular})
+                  </div>
+                  <div className="inline-flex rounded-lg p-0.5 bg-slate-200/80 text-[11px] font-medium">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalWhatsappBillingType('per_month');
+                        if (!modalWhatsappMonthlyCharges && modalWhatsappTotal > 0) {
+                          setModalWhatsappMonthlyCharges(modalWhatsappTotal);
+                          setModalWhatsappRate(modalWhatsappTotal);
+                          setModalWhatsappMessages(1);
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${
+                        isModalPerMonth
+                          ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Monthly WhatsApp Charges
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalWhatsappBillingType('per_message')}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${
+                        !isModalPerMonth
+                          ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Per Message
+                    </button>
+                  </div>
                 </div>
 
                 {isModalPerMonth ? (
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                      Monthly WhatsApp Charges ({currency})
-                    </label>
+                  <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[11px] font-bold text-emerald-900">
+                        Monthly WhatsApp Charges ({currency})
+                      </label>
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                        Fixed Monthly Fee
+                      </span>
+                    </div>
                     <input
                       type="number"
                       min={0}
-                      value={modalWhatsappMonthlyCharges}
+                      value={modalWhatsappMonthlyCharges || ''}
+                      placeholder="Enter WhatsApp monthly charges (e.g. 5000)"
                       onChange={(e) => {
                         const val = Number(e.target.value) || 0;
                         setModalWhatsappMonthlyCharges(val);
                         setModalWhatsappRate(val);
                         setModalWhatsappMessages(1);
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs font-semibold"
+                      className="w-full px-3 py-2 rounded-lg border border-emerald-300 bg-white font-mono text-sm font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
                     />
-                    <span className="text-[10.5px] text-blue-600 block mt-1">
-                      Fixed per month (calculation will not show on invoice)
-                    </span>
+                    <div className="flex items-center justify-between text-[11px] text-emerald-700 font-medium pt-0.5">
+                      <span>Added to {selectedMonth} payment &amp; balance</span>
+                      <span className="font-bold font-mono">
+                        + {formatCurrency(modalWhatsappTotal, currency)}
+                      </span>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -1780,10 +1822,10 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     ? Number(modalWhatsappMonthlyCharges) || 0
                     : modalWhatsappTotal;
                   const finalWhatsappRate = isModalPerMonth
-                    ? 0
+                    ? Number(modalWhatsappMonthlyCharges) || 0
                     : modalWhatsappRate;
                   const finalWhatsappMessages = isModalPerMonth
-                    ? 0
+                    ? 1
                     : modalWhatsappMessages;
                   const finalBillingType = isModalPerMonth
                     ? 'per_month'
@@ -2064,6 +2106,20 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     (Number(genChatbotCharges) || 0);
 
   const batchActiveClients = clients.filter((c) => c.enabled);
+  const generatedClients = clients.filter((c) =>
+    isClientInvoiceGenerated(c, selectedMonth, company.receiptLog)
+  );
+  const pendingClients = clients.filter(
+    (c) =>
+      !isClientInvoiceGenerated(c, selectedMonth, company.receiptLog) &&
+      c.enabled
+  );
+  const displayedClients =
+    invListFilter === 'generated'
+      ? generatedClients
+      : invListFilter === 'pending'
+      ? pendingClients
+      : clients;
   const batchTotalAmount = batchActiveClients.reduce((sum, c) => {
     const rec = getOrComputeMonthlyRecord(c, selectedMonth);
     const sw = c.softwareEnabled
@@ -2370,42 +2426,176 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
         })()}
       </div>
 
-      {/* Invoices List Table */}
+      {/* Invoices List Table Header & Filters */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-        {clients.length === 0 ? (
-          <div className="py-12 text-center text-xs text-slate-400">
-            No {term.plural.toLowerCase()} added yet. Add a{' '}
-            {term.singular.toLowerCase()} first to generate invoices.
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-slate-200 bg-slate-50/60">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-200/80 rounded-lg text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setInvListFilter('generated')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                invListFilter === 'generated'
+                  ? 'bg-white text-slate-900 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Generated Invoices ({generatedClients.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setInvListFilter('pending')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                invListFilter === 'pending'
+                  ? 'bg-white text-slate-900 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Pending Generation ({pendingClients.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setInvListFilter('all')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                invListFilter === 'all'
+                  ? 'bg-white text-slate-900 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All {term.plural} ({clients.length})
+            </button>
+          </div>
+
+          <div className="text-xs text-slate-500 font-medium">
+            Active Billing Month:{' '}
+            <strong className="text-slate-800">{selectedMonth}</strong>
+          </div>
+        </div>
+
+        {displayedClients.length === 0 ? (
+          <div className="py-12 px-4 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+              <FileText className="w-6 h-6" />
+            </div>
+            {invListFilter === 'generated' ? (
+              <>
+                <h3 className="text-sm font-bold text-slate-800">
+                  No Invoices Generated for {selectedMonth} Yet
+                </h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Invoices of previous months will not show on {selectedMonth}{' '}
+                  until you generate them. You can generate all{' '}
+                  {batchActiveClients.length} monthly invoices with one click or
+                  generate individual invoices below.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                  {onGenerateAllMonthlyInvoices &&
+                    batchActiveClients.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowBatchModal(true)}
+                        className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg inline-flex items-center gap-1.5 shadow-xs"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                        <span>
+                          Generate All Invoices for {selectedMonth} (
+                          {batchActiveClients.length})
+                        </span>
+                      </button>
+                    )}
+                  <button
+                    type="button"
+                    onClick={() => setInvListFilter('pending')}
+                    className="px-4 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200"
+                  >
+                    View Pending {term.plural} ({pendingClients.length})
+                  </button>
+                </div>
+              </>
+            ) : invListFilter === 'pending' ? (
+              <>
+                <h3 className="text-sm font-bold text-emerald-700">
+                  All Invoices for {selectedMonth} Have Been Generated!
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Every active {term.singular.toLowerCase()} has an invoice
+                  generated for this month.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setInvListFilter('generated')}
+                  className="px-4 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200"
+                >
+                  View Generated Invoices ({generatedClients.length})
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-slate-400">
+                No {term.plural.toLowerCase()} added yet. Add a{' '}
+                {term.singular.toLowerCase()} first to generate invoices.
+              </p>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse border border-slate-200">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold text-slate-600">
-                  <th className="py-3.5 px-4 border border-slate-200">Invoice No.</th>
-                  <th className="py-3.5 px-4 border border-slate-200">{term.singular}</th>
+                  <th className="py-3.5 px-4 border border-slate-200">
+                    Invoice No.
+                  </th>
+                  <th className="py-3.5 px-4 border border-slate-200">
+                    {term.singular}
+                  </th>
                   <th className="py-3.5 px-4 border border-slate-200">Month</th>
-                  <th className="py-3.5 px-4 text-right border border-slate-200 bg-blue-50/30 text-blue-900">Software Charges</th>
-                  <th className="py-3.5 px-4 border border-slate-200">WhatsApp Charges</th>
-                  <th className="py-3.5 px-4 text-right border border-slate-200 bg-purple-50/30 text-purple-900">Chatbot Charges</th>
-                  <th className="py-3.5 px-4 text-right border border-slate-200 font-bold">Total Amount</th>
+                  <th className="py-3.5 px-4 text-right border border-slate-200 bg-blue-50/30 text-blue-900">
+                    Software Charges
+                  </th>
+                  <th className="py-3.5 px-4 border border-slate-200">
+                    WhatsApp Charges
+                  </th>
+                  <th className="py-3.5 px-4 text-right border border-slate-200 bg-purple-50/30 text-purple-900">
+                    Chatbot Charges
+                  </th>
+                  <th className="py-3.5 px-4 text-right border border-slate-200 font-bold">
+                    Total Amount
+                  </th>
                   <th className="py-3.5 px-4 border border-slate-200">Status</th>
-                  <th className="py-3.5 px-4 text-right border border-slate-200">Action &amp; Delete</th>
+                  <th className="py-3.5 px-4 text-right border border-slate-200">
+                    Action &amp; Delete
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
-                {clients.map((client, idx) => {
+                {displayedClients.map((client, idx) => {
+                  const isGen = isClientInvoiceGenerated(
+                    client,
+                    selectedMonth,
+                    company.receiptLog
+                  );
                   const rec = getOrComputeMonthlyRecord(client, selectedMonth);
-                  const invNo =
-                    rec.invoiceNumber ||
-                    `INV-${String(idx + 1).padStart(3, '0')}`;
+                  const savedLog = (company.receiptLog || []).find(
+                    (r) => r.clientId === client.id && r.month === selectedMonth
+                  );
+                  const invNo = isGen
+                    ? savedLog?.invoiceNumber ||
+                      rec.invoiceNumber ||
+                      `INV-${String(idx + 1).padStart(3, '0')}`
+                    : null;
                   return (
                     <tr
                       key={client.id}
                       className="hover:bg-slate-50/80 transition-colors"
                     >
                       <td className="py-3.5 px-4 font-mono font-semibold text-slate-700 border border-slate-200">
-                        {invNo}
+                        {isGen ? (
+                          <span className="text-blue-700 font-bold">
+                            {invNo}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                            Not Generated
+                          </span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 font-semibold text-slate-900 border border-slate-200">
                         {client.name}
@@ -2446,92 +2636,128 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                         {formatCurrency(rec.totalAmount, currency)}
                       </td>
                       <td className="py-3.5 px-4 border border-slate-200">
-                        <span
-                          className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
-                            rec.status === 'Paid'
-                              ? 'text-emerald-700'
-                              : rec.status === 'Partially Paid'
-                              ? 'text-amber-700'
-                              : 'text-rose-600'
-                          }`}
-                        >
+                        {isGen ? (
                           <span
-                            className={`w-1.5 h-1.5 rounded-full ${
+                            className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
                               rec.status === 'Paid'
-                                ? 'bg-emerald-600'
+                                ? 'text-emerald-700'
                                 : rec.status === 'Partially Paid'
-                                ? 'bg-amber-500'
-                                : 'bg-rose-600'
+                                ? 'text-amber-700'
+                                : 'text-rose-600'
                             }`}
-                          />
-                          <span>{rec.status}</span>
-                        </span>
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                rec.status === 'Paid'
+                                  ? 'bg-emerald-600'
+                                  : rec.status === 'Partially Paid'
+                                  ? 'bg-amber-500'
+                                  : 'bg-rose-600'
+                              }`}
+                            />
+                            <span>{rec.status}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            <span>Pending</span>
+                          </span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-right border border-slate-200">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onGenerateInvoiceWithCharges(
-                                client.id,
-                                selectedMonth,
-                                rec.softwareCharges,
-                                rec.whatsappRate,
-                                rec.whatsappMessages,
-                                rec.chatbotCharges
-                              )
-                            }
-                            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Edit / Preview</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onQuickPrintInvoice(client.id, selectedMonth)
-                            }
-                            title="Print Invoice"
-                            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
-                          >
-                            <Printer className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Print</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onQuickDownloadInvoice(client.id, selectedMonth)
-                            }
-                            className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Download</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onQuickWhatsAppInvoice(client.id, selectedMonth)
-                            }
-                            title="Share via WhatsApp (Without Downloading)"
-                            className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
-                          >
-                            <MessageCircle className="w-4 h-4" />
-                          </button>
-                          {onDeleteInvoice && (
+                          {isGen ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onGenerateInvoiceWithCharges(
+                                    client.id,
+                                    selectedMonth,
+                                    rec.softwareCharges,
+                                    rec.whatsappRate,
+                                    rec.whatsappMessages,
+                                    rec.chatbotCharges
+                                  )
+                                }
+                                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Edit / Preview</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onQuickPrintInvoice(client.id, selectedMonth)
+                                }
+                                title="Print Invoice with Company Logo"
+                                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <Printer className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Print</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onQuickDownloadInvoice(
+                                    client.id,
+                                    selectedMonth
+                                  )
+                                }
+                                title="Download PDF with Company Logo"
+                                className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onQuickWhatsAppInvoice(
+                                    client.id,
+                                    selectedMonth
+                                  )
+                                }
+                                title="Share via WhatsApp with Company Logo PDF"
+                                className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                              </button>
+                              {onDeleteInvoice && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDeleteInvoiceTarget({
+                                      clientId: client.id,
+                                      clientName: client.name,
+                                      month: selectedMonth,
+                                      invoiceNumber: invNo || 'INV',
+                                    })
+                                  }
+                                  title="Delete this Invoice"
+                                  className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </>
+                          ) : (
                             <button
                               type="button"
                               onClick={() =>
-                                setDeleteInvoiceTarget({
-                                  clientId: client.id,
-                                  clientName: client.name,
-                                  month: selectedMonth,
-                                  invoiceNumber: invNo,
-                                })
+                                onGenerateInvoiceWithCharges(
+                                  client.id,
+                                  selectedMonth,
+                                  rec.softwareCharges,
+                                  rec.whatsappRate,
+                                  rec.whatsappMessages,
+                                  rec.chatbotCharges
+                                )
                               }
-                              title="Delete this Invoice"
-                              className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                              className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-xs"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Generate Invoice</span>
                             </button>
                           )}
                         </div>

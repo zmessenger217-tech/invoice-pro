@@ -183,7 +183,7 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
           category === 'Other'
             ? `${customSingular.trim() || 'Client'}s`
             : undefined,
-        logoDataUrl,
+        logoDataUrl: resolveActiveLogoUrl(logoDataUrl),
       });
       setMode('app');
     } finally {

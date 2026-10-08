@@ -62,6 +62,7 @@ import {
   GeneratedReceiptItem,
   InvoiceEditableDocument,
   PartnerItem,
+  PaymentStatus,
   PaymentTransaction,
   SoftwareCategory,
 } from './types';
@@ -766,6 +767,9 @@ export default function App() {
         ...target.monthlyRecords,
         [month]: {
           ...currentRec,
+          invoiceGenerated: true,
+          invoiceGeneratedAt:
+            currentRec.invoiceGeneratedAt || new Date().toISOString(),
           softwareCharges,
           whatsappBillingType: billingType,
           whatsappRate,
@@ -925,7 +929,7 @@ export default function App() {
       currentRec.amountPaid + Math.max(0, amountPaidNow)
     );
     const newRemaining = Math.max(0, totalAmount - newTotalPaid);
-    const newStatus =
+    const newStatus: PaymentStatus =
       newRemaining === 0
         ? 'Paid'
         : newTotalPaid > 0
@@ -976,16 +980,55 @@ export default function App() {
       prev.map((c) => (c.id === clientId ? updatedClient : c))
     );
 
+    let updatedCompany = company;
+    if (
+      company.receiptLog?.some(
+        (r) => r.clientId === clientId && r.month === month
+      )
+    ) {
+      const updatedLog = company.receiptLog.map((r) => {
+        if (r.clientId === clientId && r.month === month) {
+          const docData = buildEditableInvoiceFromClient(
+            company,
+            updatedClient,
+            month
+          );
+          return {
+            ...r,
+            softwareCharges,
+            whatsappBillingType: billingType,
+            whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
+            whatsappMessages:
+              billingType === 'per_month' ? 0 : whatsappMessages,
+            whatsappCharges,
+            chatbotCharges,
+            currentMonthTotal,
+            totalAmount,
+            amountPaid: newTotalPaid,
+            remainingDues: newRemaining,
+            status: newStatus,
+            doc: docData,
+          };
+        }
+        return r;
+      });
+      updatedCompany = { ...company, receiptLog: updatedLog };
+      setCompany(updatedCompany);
+    }
+
     if (editorClientId === clientId) {
       setInvoiceDoc(
-        buildEditableInvoiceFromClient(company, updatedClient, month)
+        buildEditableInvoiceFromClient(updatedCompany, updatedClient, month)
       );
     }
 
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
-        await syncClientToFirestore(activeUser.uid, updatedClient, false);
+        await Promise.all([
+          syncClientToFirestore(activeUser.uid, updatedClient, false),
+          syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany),
+        ]);
       } catch (err) {
         console.error(err);
       }
@@ -1039,6 +1082,8 @@ export default function App() {
         ...target.monthlyRecords,
         [month]: {
           ...currentRec,
+          invoiceGenerated: true,
+          invoiceGeneratedAt: new Date().toISOString(),
           softwareCharges,
           whatsappBillingType: billingType,
           whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
@@ -1189,6 +1234,8 @@ export default function App() {
           ...client.monthlyRecords,
           [month]: {
             ...currentRec,
+            invoiceGenerated: true,
+            invoiceGeneratedAt: new Date().toISOString(),
             softwareCharges,
             whatsappBillingType: clientBillingType,
             whatsappRate,
@@ -1289,6 +1336,8 @@ export default function App() {
         ...target.monthlyRecords,
         [month]: {
           ...currentRec,
+          invoiceGenerated: false,
+          invoiceGeneratedAt: undefined,
           softwareCharges: 0,
           whatsappMessages: 0,
           whatsappCharges: 0,
@@ -1361,6 +1410,8 @@ export default function App() {
             ...target.monthlyRecords,
             [month]: {
               ...currentRec,
+              invoiceGenerated: false,
+              invoiceGeneratedAt: undefined,
               softwareCharges: 0,
               whatsappMessages: 0,
               whatsappCharges: 0,
@@ -1411,6 +1462,14 @@ export default function App() {
     if (doc) {
       setInvoiceDoc({
         ...doc,
+        logoDataUrl: resolveActiveLogoUrl(
+          doc.logoDataUrl || company.logoDataUrl
+        ),
+        companyName: doc.companyName || company.name || 'Your Company Name',
+        companyTagline: doc.companyTagline || company.tagline,
+        companyPhone: doc.companyPhone || company.phone,
+        companyEmail: doc.companyEmail || company.email,
+        companyWebsite: doc.companyWebsite || company.website,
         qrCodes:
           doc.qrCodes && doc.qrCodes.length > 0
             ? doc.qrCodes

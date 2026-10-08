@@ -1892,7 +1892,7 @@ export const FinanceAndSettingsViews: React.FC<
               compCategory === 'Other' ? compCustomSingular : undefined,
             customPlural:
               compCategory === 'Other' ? `${compCustomSingular}s` : undefined,
-            logoDataUrl: compLogo,
+            logoDataUrl: resolveActiveLogoUrl(compLogo),
             qrCodeDataUrl: compQrCodes[0]?.dataUrl || compQrCode,
             qrCodes: compQrCodes,
             showQrCode: compShowQr,
