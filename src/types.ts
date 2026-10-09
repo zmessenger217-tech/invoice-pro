@@ -186,6 +186,7 @@ export interface PartnerItem {
     string,
     {
       paid: boolean;
+      amountPaid?: number;
       paidDate?: string;
       expenseId?: string;
     }

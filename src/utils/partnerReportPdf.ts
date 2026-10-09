@@ -14,6 +14,12 @@ export interface PartnerSchoolReportItem {
   whatsappPay: number;
   chatbotPay: number;
   totalPay: number;
+  softwareCharges?: number;
+  whatsappCharges?: number;
+  chatbotCharges?: number;
+  schoolTotal?: number;
+  schoolPaid?: number;
+  schoolRemaining?: number;
   partnerNote?: string;
   schoolStatus?: string;
 }
@@ -25,6 +31,7 @@ export interface PartnerReportOptions {
   selectedMonth: string;
   currency?: string;
   isPaid?: boolean;
+  amountPaid?: number;
 }
 
 export interface AllPartnersReportOptions {
@@ -57,6 +64,10 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
     currency = company.currency || 'Rs.',
     isPaid = Boolean(partner.paidMonths?.[selectedMonth]?.paid),
   } = options;
+  const rawAmountPaid =
+    options.amountPaid !== undefined
+      ? options.amountPaid
+      : partner.paidMonths?.[selectedMonth]?.amountPaid;
 
   const pdf = new jsPDF({
     orientation: 'portrait',
@@ -162,12 +173,33 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
     align: 'right',
   });
 
+  // Filter to ONLY schools that actually contribute a cut to this partner
+  const contributingSchools = partnerSchools.filter(
+    (s) =>
+      (Number(s.totalPay) || 0) > 0 ||
+      (Number(s.softwarePay) || 0) > 0 ||
+      (Number(s.whatsappPay) || 0) > 0 ||
+      (Number(s.chatbotPay) || 0) > 0
+  );
+
   // Calculate Aggregates for this partner
-  const totalSoftwareCut = partnerSchools.reduce((sum, s) => sum + s.softwarePay, 0);
-  const totalWhatsappCut = partnerSchools.reduce((sum, s) => sum + s.whatsappPay, 0);
-  const totalChatbotCut = partnerSchools.reduce((sum, s) => sum + s.chatbotPay, 0);
-  const totalPayoutCalc = partnerSchools.reduce((sum, s) => sum + s.totalPay, 0);
+  const totalSoftwareCut = contributingSchools.reduce((sum, s) => sum + s.softwarePay, 0);
+  const totalWhatsappCut = contributingSchools.reduce((sum, s) => sum + s.whatsappPay, 0);
+  const totalChatbotCut = contributingSchools.reduce((sum, s) => sum + s.chatbotPay, 0);
+  const totalPayoutCalc = contributingSchools.reduce((sum, s) => sum + s.totalPay, 0);
   const finalTotalPayout = totalPayoutCalc > 0 ? totalPayoutCalc : partner.monthlyPayment;
+  const partnerAmountPaid =
+    rawAmountPaid !== undefined
+      ? Number(rawAmountPaid) || 0
+      : isPaid
+      ? finalTotalPayout
+      : 0;
+  const partnerRemainingDues = Math.max(0, finalTotalPayout - partnerAmountPaid);
+  const isFullyPaid =
+    (finalTotalPayout > 0 && partnerAmountPaid >= finalTotalPayout) ||
+    (isPaid && partnerRemainingDues === 0);
+  const isPartiallyPaid =
+    !isFullyPaid && partnerAmountPaid > 0 && partnerAmountPaid < finalTotalPayout;
 
   // Partner Info & Payout Status Block (Y: 50 to 76)
   let currY = 50;
@@ -191,9 +223,9 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
   pdf.text(`Phone: ${partner.phone || 'N/A'}`, margin + 4, currY + 19);
-  pdf.text(`Linked Schools: ${partnerSchools.length}`, margin + 65, currY + 19);
+  pdf.text(`Contributing Institutes: ${contributingSchools.length}`, margin + 65, currY + 19);
 
-  // Right Box: Payout Status & Date
+  // Right Box: Payout Status & Dues
   const rightBoxWidth = contentWidth - 120;
   const rightBoxX = margin + 120;
   pdf.setFillColor(248, 250, 252);
@@ -203,30 +235,51 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
   pdf.setTextColor(100, 116, 139);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(8);
-  pdf.text('PAYOUT STATUS', rightBoxX + 4, currY + 6);
+  pdf.text('PAYOUT & DUES STATUS', rightBoxX + 4, currY + 6);
 
-  if (isPaid) {
+  if (isFullyPaid) {
     pdf.setFillColor(220, 252, 231); // Emerald-100
     pdf.setDrawColor(187, 247, 208);
-    pdf.roundedRect(rightBoxX + 4, currY + 9, 28, 6.5, 1.5, 1.5, 'FD');
+    pdf.roundedRect(rightBoxX + 4, currY + 8.5, 28, 6, 1.5, 1.5, 'FD');
     pdf.setTextColor(22, 101, 52); // Emerald-800
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(8.5);
-    pdf.text('PAID', rightBoxX + 18, currY + 13.5, { align: 'center' });
+    pdf.setFontSize(8);
+    pdf.text('PAID', rightBoxX + 18, currY + 12.8, { align: 'center' });
+  } else if (isPartiallyPaid) {
+    pdf.setFillColor(219, 234, 254); // Blue-100
+    pdf.setDrawColor(191, 219, 254);
+    pdf.roundedRect(rightBoxX + 4, currY + 8.5, 36, 6, 1.5, 1.5, 'FD');
+    pdf.setTextColor(30, 64, 175); // Blue-800
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7.5);
+    pdf.text('PARTIAL PAID', rightBoxX + 22, currY + 12.8, { align: 'center' });
   } else {
     pdf.setFillColor(254, 243, 199); // Amber-100
     pdf.setDrawColor(253, 230, 138);
-    pdf.roundedRect(rightBoxX + 4, currY + 9, 32, 6.5, 1.5, 1.5, 'FD');
+    pdf.roundedRect(rightBoxX + 4, currY + 8.5, 32, 6, 1.5, 1.5, 'FD');
     pdf.setTextColor(146, 64, 14); // Amber-800
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(8.5);
-    pdf.text('PENDING', rightBoxX + 20, currY + 13.5, { align: 'center' });
+    pdf.setFontSize(8);
+    pdf.text('UNPAID', rightBoxX + 20, currY + 12.8, { align: 'center' });
   }
 
-  pdf.setTextColor(100, 116, 139);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(8);
-  pdf.text(`Generated: ${new Date().toLocaleDateString()}`, rightBoxX + 4, currY + 21);
+  pdf.setTextColor(22, 101, 52);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(7.5);
+  pdf.text(
+    `Paid: ${formatCurrency(partnerAmountPaid, currency)}`,
+    rightBoxX + 4,
+    currY + 18.5
+  );
+
+  pdf.setTextColor(partnerRemainingDues > 0 ? 225 : 22, partnerRemainingDues > 0 ? 29 : 101, partnerRemainingDues > 0 ? 72 : 52);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(7.5);
+  pdf.text(
+    `Dues: ${formatCurrency(partnerRemainingDues, currency)}`,
+    rightBoxX + 4,
+    currY + 23
+  );
 
   // 4 Top Summary Metric Cards for Partner Earnings Only (Y: 80 to 100)
   currY = 80;
@@ -360,7 +413,7 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
 
   currY += 8;
 
-  if (partnerSchools.length === 0) {
+  if (contributingSchools.length === 0) {
     pdf.setFillColor(248, 250, 252);
     pdf.rect(margin, currY, contentWidth, 16, 'F');
     pdf.setDrawColor(226, 232, 240);
@@ -370,14 +423,14 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(9);
     pdf.text(
-      `No individual schools linked. Fixed monthly payment: ${formatCurrency(partner.monthlyPayment, currency)}`,
+      `No contributing schools for this period. Fixed monthly payment: ${formatCurrency(partner.monthlyPayment, currency)}`,
       pageWidth / 2,
       currY + 10,
       { align: 'center' }
     );
     currY += 16;
   } else {
-    partnerSchools.forEach((school, index) => {
+    contributingSchools.forEach((school, index) => {
       // Check for page overflow
       if (currY > pageHeight - 35) {
         pdf.addPage();
@@ -413,7 +466,7 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
       pdf.setFontSize(8);
       pdf.text(String(index + 1), colX.idx + 2, currY + 6);
 
-      // School Name
+      // School Name (no school Billed / Paid / Dues shown)
       pdf.setTextColor(15, 23, 42);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(8.5);
@@ -421,17 +474,18 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
         school.client.name.length > 34
           ? `${school.client.name.slice(0, 32)}...`
           : school.client.name;
-      pdf.text(truncatedName, colX.name + 2, currY + 4.5);
-
-      if (school.client.address || school.client.phone) {
-        pdf.setTextColor(148, 163, 184);
+      if (school.client.address) {
+        pdf.text(truncatedName, colX.name + 2, currY + 4.5);
+        pdf.setTextColor(100, 116, 139);
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(6.5);
-        const sub = [school.client.address, school.client.phone]
-          .filter(Boolean)
-          .join(' · ');
-        const truncatedSub = sub.length > 40 ? `${sub.slice(0, 38)}...` : sub;
-        pdf.text(truncatedSub, colX.name + 2, currY + 8);
+        const truncatedAddr =
+          school.client.address.length > 42
+            ? `${school.client.address.slice(0, 40)}...`
+            : school.client.address;
+        pdf.text(truncatedAddr, colX.name + 2, currY + 8);
+      } else {
+        pdf.text(truncatedName, colX.name + 2, currY + 6);
       }
 
       // Software Pay to Partner
@@ -522,7 +576,52 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
     { align: 'right' }
   );
 
-  currY += 15;
+  currY += 12;
+
+  // Partner Payment & Remaining Dues Summary Rows
+  pdf.setFillColor(240, 253, 244); // Emerald-50
+  pdf.setDrawColor(187, 247, 208); // Emerald-200
+  pdf.roundedRect(margin, currY, contentWidth, 9, 1, 1, 'FD');
+  pdf.setTextColor(22, 101, 52);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(8.5);
+  pdf.text('AMOUNT PAID TO PARTNER', colX.idx + 2, currY + 6);
+  pdf.text(
+    formatCurrency(partnerAmountPaid, currency),
+    colX.total + colW.total - 2,
+    currY + 6,
+    { align: 'right' }
+  );
+
+  currY += 10.5;
+
+  pdf.setFillColor(
+    partnerRemainingDues > 0 ? 255 : 240,
+    partnerRemainingDues > 0 ? 241 : 253,
+    partnerRemainingDues > 0 ? 242 : 244
+  );
+  pdf.setDrawColor(
+    partnerRemainingDues > 0 ? 254 : 187,
+    partnerRemainingDues > 0 ? 205 : 247,
+    partnerRemainingDues > 0 ? 211 : 208
+  );
+  pdf.roundedRect(margin, currY, contentWidth, 9, 1, 1, 'FD');
+  pdf.setTextColor(
+    partnerRemainingDues > 0 ? 190 : 22,
+    partnerRemainingDues > 0 ? 18 : 101,
+    partnerRemainingDues > 0 ? 60 : 52
+  );
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(8.5);
+  pdf.text('REMAINING PARTNER DUES (BALANCE TO PAY)', colX.idx + 2, currY + 6);
+  pdf.text(
+    formatCurrency(partnerRemainingDues, currency),
+    colX.total + colW.total - 2,
+    currY + 6,
+    { align: 'right' }
+  );
+
+  currY += 14;
 
   // Sign-off / Terms & Acknowledgment Section
   if (currY < pageHeight - 35) {

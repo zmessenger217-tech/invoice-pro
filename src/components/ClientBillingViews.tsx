@@ -53,6 +53,7 @@ interface ClientBillingViewsProps {
   monthlyRevenue: number;
   monthlyExpenses: number;
   partnerPayoutsTotal: number;
+  onResetMonthlyExpenses?: () => void;
   onSaveClient: (client: ClientEntity, isNew: boolean) => void;
   onDeleteClient: (clientId: string) => void;
   onRecordPaymentWithCharges: (
@@ -97,6 +98,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   monthlyRevenue,
   monthlyExpenses,
   partnerPayoutsTotal,
+  onResetMonthlyExpenses,
   onSaveClient,
   onDeleteClient,
   onRecordPaymentWithCharges,
@@ -597,6 +599,15 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               <div className="text-2xl font-bold text-rose-600 font-mono tabular-nums mt-1.5">
                 {formatCurrency(monthlyExpenses, currency)}
               </div>
+              {monthlyExpenses > 0 && onResetMonthlyExpenses && (
+                <button
+                  type="button"
+                  onClick={onResetMonthlyExpenses}
+                  className="mt-1.5 px-2 py-0.5 text-[10px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded transition-colors"
+                >
+                  Reset to 0
+                </button>
+              )}
             </div>
             <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
               <TrendingDown className="w-5 h-5" />

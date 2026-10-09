@@ -64,6 +64,11 @@ interface FinanceAndSettingsViewsProps {
   onDeleteExpense: (id: string) => void;
   onAddPartner: (partner: PartnerItem) => void;
   onTogglePartnerPaid: (partnerId: string, month: string) => void;
+  onUpdatePartnerPayment?: (
+    partnerId: string,
+    month: string,
+    amountPaid: number
+  ) => void;
   onDeletePartner: (partnerId: string) => void;
   onToggleClientEnabled: (clientId: string) => void;
   onDeleteClient: (clientId: string) => void;
@@ -107,6 +112,7 @@ export const FinanceAndSettingsViews: React.FC<
   onDeleteExpense,
   onAddPartner,
   onTogglePartnerPaid,
+  onUpdatePartnerPayment,
   onDeletePartner,
   onToggleClientEnabled,
   onDeleteClient,
@@ -133,6 +139,12 @@ export const FinanceAndSettingsViews: React.FC<
   const [partnerPhone, setPartnerPhone] = useState('');
   const [partnerMonthlyPayment, setPartnerMonthlyPayment] = useState('');
   const [detailPartnerModal, setDetailPartnerModal] = useState<PartnerItem | null>(null);
+  const [paymentPartnerModal, setPaymentPartnerModal] = useState<{
+    partner: PartnerItem;
+    totalPayout: number;
+    currentPaid: number;
+  } | null>(null);
+  const [partnerPaymentInput, setPartnerPaymentInput] = useState<string>('');
 
   // 11. Finance Report Filter State
   const [reportScope, setReportScope] = useState<
@@ -258,9 +270,53 @@ export const FinanceAndSettingsViews: React.FC<
   }, [company]);
 
   const monthExpensesList = expenses.filter((e) => e.month === selectedMonth);
+
+  const computePartnerPayoutForMonth = (p: PartnerItem, month: string) => {
+    const isAbdulSattar =
+      p.id === 'part-abdul-sattar' ||
+      p.name.trim().toUpperCase().includes('ABDUL SATTAR') ||
+      partners.length === 1;
+    const schoolsCut = clients
+      .filter((c) => c.enabled)
+      .map((c) => {
+        const r = getOrComputeMonthlyRecord(c, month);
+        const explicitPartnerId = r.partnerId || c.partnerId;
+        const isExplicitlyThis =
+          explicitPartnerId === p.id ||
+          (r.partnerName || c.partnerName || '').trim().toUpperCase() ===
+            p.name.trim().toUpperCase();
+        const isExplicitlyOther =
+          Boolean(explicitPartnerId && explicitPartnerId !== p.id) &&
+          partners.some((other) => other.id === explicitPartnerId);
+        if (!isExplicitlyThis && !(isAbdulSattar && !isExplicitlyOther)) {
+          return 0;
+        }
+        const sw = Number(
+          r.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+        );
+        const wa = Number(
+          r.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+        );
+        const cb = Number(
+          r.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+        );
+        const tot = Number(r.partnerTotalPayment ?? c.partnerTotalPayment ?? 0);
+        return tot > 0 ? tot : sw + wa + cb;
+      })
+      .reduce((sum, val) => sum + val, 0);
+    return schoolsCut > 0 ? schoolsCut : p.monthlyPayment;
+  };
+
   const partnerPayoutsTotal = partners.reduce((sum, p) => {
-    const isPaid = p.paidMonths[selectedMonth]?.paid;
-    return sum + (isPaid ? p.monthlyPayment : 0);
+    const monthRec = p.paidMonths[selectedMonth];
+    const fullPayout = computePartnerPayoutForMonth(p, selectedMonth);
+    if (monthRec?.amountPaid !== undefined && Number(monthRec.amountPaid) > 0) {
+      return sum + Number(monthRec.amountPaid);
+    }
+    if (monthRec?.paid) {
+      return sum + fullPayout;
+    }
+    return sum;
   }, 0);
 
   // 9. EXPENSES VIEW (Matches Screen 9)
@@ -513,21 +569,63 @@ export const FinanceAndSettingsViews: React.FC<
 
     // Helper to get linked schools for a specific partner in the selected month
     const getPartnerSchoolsData = (partnerId: string) => {
+      const targetPartner = partners.find((p) => p.id === partnerId);
+      const isAbdulSattar =
+        partnerId === 'part-abdul-sattar' ||
+        Boolean(
+          targetPartner &&
+            targetPartner.name.trim().toUpperCase().includes('ABDUL SATTAR')
+        ) ||
+        partners.length === 1;
+
       return clients
         .filter((c) => c.enabled)
         .map((c) => {
           const rec = getOrComputeMonthlyRecord(c, selectedMonth);
+          const explicitPartnerId = rec.partnerId || c.partnerId;
+          const explicitPartnerName = (rec.partnerName || c.partnerName || '')
+            .trim()
+            .toUpperCase();
+          const isExplicitlyThisPartner =
+            explicitPartnerId === partnerId ||
+            (targetPartner &&
+              explicitPartnerName &&
+              explicitPartnerName ===
+                targetPartner.name.trim().toUpperCase());
+          const isExplicitlyOtherPartner =
+            Boolean(explicitPartnerId && explicitPartnerId !== partnerId) &&
+            partners.some((other) => other.id === explicitPartnerId);
+          const swPay = Number(
+            rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+          );
+          const waPay = Number(
+            rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+          );
+          const cbPay = Number(
+            rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+          );
+          const rawTotPay = Number(
+            rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
+          );
+          const totalPay = rawTotPay > 0 ? rawTotPay : swPay + waPay + cbPay;
+          const contributesToPartner =
+            totalPay > 0 || swPay > 0 || waPay > 0 || cbPay > 0;
           const isLinked =
-            (rec.partnerId === partnerId && rec.partnerPaymentEnabled) ||
-            (c.partnerId === partnerId && c.partnerPaymentEnabled);
+            contributesToPartner &&
+            (isExplicitlyThisPartner ||
+              (isAbdulSattar && !isExplicitlyOtherPartner));
+
           return {
             client: c,
             record: rec,
             isLinked,
-            softwarePay: Number(rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0),
-            whatsappPay: Number(rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0),
-            chatbotPay: Number(rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0),
-            totalPay: Number(rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0),
+            softwareCharges: Number(rec.softwareCharges || 0),
+            whatsappCharges: Number(rec.whatsappCharges || 0),
+            chatbotCharges: Number(rec.chatbotCharges || 0),
+            softwarePay: swPay,
+            whatsappPay: waPay,
+            chatbotPay: cbPay,
+            totalPay,
             schoolTotal: rec.totalAmount || rec.currentMonthTotal,
             currentMonthTotal: rec.currentMonthTotal,
             schoolPaid: rec.amountPaid,
@@ -544,47 +642,91 @@ export const FinanceAndSettingsViews: React.FC<
       .filter((c) => c.enabled)
       .map((c) => {
         const rec = getOrComputeMonthlyRecord(c, selectedMonth);
+        const swPay = Number(
+          rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+        );
+        const waPay = Number(
+          rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+        );
+        const cbPay = Number(
+          rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+        );
+        const rawTot = Number(
+          rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
+        );
+        const totPay = rawTot > 0 ? rawTot : swPay + waPay + cbPay;
         const isLinked = Boolean(
           (rec.partnerId && rec.partnerPaymentEnabled) ||
-          (c.partnerId && c.partnerPaymentEnabled)
+            (c.partnerId && c.partnerPaymentEnabled) ||
+            totPay > 0 ||
+            partners.length > 0
         );
         return {
           isLinked,
-          softwarePay: isLinked ? Number(rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0) : 0,
-          whatsappPay: isLinked ? Number(rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0) : 0,
-          chatbotPay: isLinked ? Number(rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0) : 0,
-          totalPay: isLinked ? Number(rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0) : 0,
+          softwarePay: isLinked ? swPay : 0,
+          whatsappPay: isLinked ? waPay : 0,
+          chatbotPay: isLinked ? cbPay : 0,
+          totalPay: isLinked ? totPay : 0,
         };
       })
       .filter((x) => x.isLinked);
 
-    const totalPartnerSoftwareAll = allPartnerLinkedRecords.reduce((sum, x) => sum + x.softwarePay, 0);
-    const totalPartnerWhatsappAll = allPartnerLinkedRecords.reduce((sum, x) => sum + x.whatsappPay, 0);
-    const totalPartnerChatbotAll = allPartnerLinkedRecords.reduce((sum, x) => sum + x.chatbotPay, 0);
+    const totalPartnerSoftwareAll = allPartnerLinkedRecords.reduce(
+      (sum, x) => sum + x.softwarePay,
+      0
+    );
+    const totalPartnerWhatsappAll = allPartnerLinkedRecords.reduce(
+      (sum, x) => sum + x.whatsappPay,
+      0
+    );
+    const totalPartnerChatbotAll = allPartnerLinkedRecords.reduce(
+      (sum, x) => sum + x.chatbotPay,
+      0
+    );
+    const totalAllPartnersCut = partners.reduce(
+      (sum, p) => sum + computePartnerPayoutForMonth(p, selectedMonth),
+      0
+    );
+    const totalAllPartnersDues = Math.max(
+      0,
+      totalAllPartnersCut - partnerPayoutsTotal
+    );
 
-    const modalPartnerSchools = detailPartnerModal
-      ? getPartnerSchoolsData(detailPartnerModal.id)
+    const activeDetailPartner = detailPartnerModal
+      ? partners.find((p) => p.id === detailPartnerModal.id) ||
+        detailPartnerModal
+      : null;
+    const modalPartnerSchools = activeDetailPartner
+      ? getPartnerSchoolsData(activeDetailPartner.id)
       : [];
-    const modalTotalPayout = detailPartnerModal
+    const modalTotalPayout = activeDetailPartner
       ? modalPartnerSchools.reduce((sum, s) => sum + s.totalPay, 0) ||
-        detailPartnerModal.monthlyPayment
+        activeDetailPartner.monthlyPayment
       : 0;
-    const modalSoftwarePayout = detailPartnerModal
+    const modalMonthRec = activeDetailPartner?.paidMonths[selectedMonth];
+    const modalAmountPaid =
+      modalMonthRec?.amountPaid !== undefined
+        ? Number(modalMonthRec.amountPaid)
+        : modalMonthRec?.paid
+        ? modalTotalPayout
+        : 0;
+    const modalPartnerDues = Math.max(0, modalTotalPayout - modalAmountPaid);
+    const modalSoftwarePayout = activeDetailPartner
       ? modalPartnerSchools.reduce((sum, s) => sum + s.softwarePay, 0)
       : 0;
-    const modalWhatsappPayout = detailPartnerModal
+    const modalWhatsappPayout = activeDetailPartner
       ? modalPartnerSchools.reduce((sum, s) => sum + s.whatsappPay, 0)
       : 0;
-    const modalChatbotPayout = detailPartnerModal
+    const modalChatbotPayout = activeDetailPartner
       ? modalPartnerSchools.reduce((sum, s) => sum + s.chatbotPay, 0)
       : 0;
-    const modalTotalSchoolRevenue = detailPartnerModal
+    const modalTotalSchoolRevenue = activeDetailPartner
       ? modalPartnerSchools.reduce((sum, s) => sum + s.schoolTotal, 0)
       : 0;
-    const modalTotalSchoolPaid = detailPartnerModal
+    const modalTotalSchoolPaid = activeDetailPartner
       ? modalPartnerSchools.reduce((sum, s) => sum + s.schoolPaid, 0)
       : 0;
-    const modalTotalSchoolRemaining = detailPartnerModal
+    const modalTotalSchoolRemaining = activeDetailPartner
       ? modalPartnerSchools.reduce((sum, s) => sum + s.schoolRemaining, 0)
       : 0;
 
@@ -639,13 +781,16 @@ export const FinanceAndSettingsViews: React.FC<
 
           <div className="bg-white rounded-xl border border-indigo-200 bg-indigo-50/20 p-4">
             <div className="text-xs font-medium text-indigo-900">
-              Total Amount to Pay Partners
+              Total Partner Cut ({selectedMonth})
             </div>
             <div className="text-xl font-bold text-indigo-600 font-mono tabular-nums mt-1">
-              {formatCurrency(partnerPayoutsTotal, currency)}
+              {formatCurrency(totalAllPartnersCut, currency)}
             </div>
-            <div className="text-[11px] text-indigo-500 mt-0.5">
-              Total commission across all {term.plural.toLowerCase()}
+            <div className="text-[11px] text-indigo-600 mt-0.5 flex items-center justify-between gap-2">
+              <span>Paid: {formatCurrency(partnerPayoutsTotal, currency)}</span>
+              <span className="text-rose-600 font-semibold">
+                Dues: {formatCurrency(totalAllPartnersDues, currency)}
+              </span>
             </div>
           </div>
 
@@ -887,7 +1032,24 @@ export const FinanceAndSettingsViews: React.FC<
                 );
                 const finalPayout =
                   schoolPayoutsSum > 0 ? schoolPayoutsSum : p.monthlyPayment;
-                const isPaid = Boolean(p.paidMonths[selectedMonth]?.paid);
+                const monthRec = p.paidMonths[selectedMonth];
+                const isMarkedPaid = Boolean(monthRec?.paid);
+                const partnerAmountPaid =
+                  monthRec?.amountPaid !== undefined
+                    ? Number(monthRec.amountPaid)
+                    : isMarkedPaid
+                    ? finalPayout
+                    : 0;
+                const partnerRemainingDues = Math.max(
+                  0,
+                  finalPayout - partnerAmountPaid
+                );
+                const isFullyPaid =
+                  isMarkedPaid ||
+                  (finalPayout > 0 && partnerAmountPaid >= finalPayout);
+                const isPartiallyPaid =
+                  !isFullyPaid && partnerAmountPaid > 0;
+                const isPaid = isFullyPaid;
 
                 return (
                   <div
@@ -909,7 +1071,7 @@ export const FinanceAndSettingsViews: React.FC<
                           </div>
                           <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
                             <span>
-                              Linked to{' '}
+                              Contributing {term.plural}:{' '}
                               <strong>
                                 {partnerSchools.length}{' '}
                                 {partnerSchools.length === 1
@@ -917,58 +1079,72 @@ export const FinanceAndSettingsViews: React.FC<
                                   : term.plural}
                               </strong>
                             </span>
-                            {partnerSchools.length > 0 && (
-                              <>
-                                <span className="text-slate-300">·</span>
-                                <span>
-                                  Billed:{' '}
-                                  <strong className="font-mono text-slate-800">
-                                    {formatCurrency(schoolBilledSum, currency)}
-                                  </strong>
-                                </span>
-                                <span className="text-slate-300">·</span>
-                                <span>
-                                  Remaining Amount:{' '}
-                                  <strong
-                                    className={`font-mono ${
-                                      schoolRemainingSum > 0
-                                        ? 'text-rose-600 font-bold'
-                                        : 'text-emerald-600'
-                                    }`}
-                                  >
-                                    {formatCurrency(schoolRemainingSum, currency)}
-                                  </strong>
-                                </span>
-                              </>
-                            )}
                           </div>
                         </div>
                       </div>
 
                       {/* Right Action & Payout Block */}
                       <div className="flex flex-wrap items-center gap-3">
-                        <div className="text-right">
-                          <div className="text-xs text-slate-500">
-                            Total Payout to Partner
+                        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-right">
+                          <div>
+                            <div className="text-[10px] text-slate-500">
+                              Total Partner Cut
+                            </div>
+                            <div className="text-sm font-bold text-indigo-600 font-mono tabular-nums">
+                              {formatCurrency(finalPayout, currency)}
+                            </div>
                           </div>
-                          <div className="text-base font-bold text-indigo-600 font-mono tabular-nums">
-                            {formatCurrency(finalPayout, currency)}
+                          <div className="h-6 w-px bg-slate-200" />
+                          <div>
+                            <div className="text-[10px] text-slate-500">
+                              Paid to Partner
+                            </div>
+                            <div className="text-sm font-bold text-emerald-600 font-mono tabular-nums">
+                              {formatCurrency(partnerAmountPaid, currency)}
+                            </div>
+                          </div>
+                          <div className="h-6 w-px bg-slate-200" />
+                          <div>
+                            <div className="text-[10px] text-slate-500">
+                              Partner Dues
+                            </div>
+                            <div
+                              className={`text-sm font-bold font-mono tabular-nums ${
+                                partnerRemainingDues > 0
+                                  ? 'text-rose-600'
+                                  : 'text-emerald-600'
+                              }`}
+                            >
+                              {formatCurrency(partnerRemainingDues, currency)}
+                            </div>
                           </div>
                         </div>
 
                         <span
                           className={`inline-flex items-center gap-1.5 font-semibold text-xs px-2.5 py-1 rounded-full ${
-                            isPaid
+                            isFullyPaid
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : isPartiallyPaid
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
                           }`}
                         >
                           <span
                             className={`w-1.5 h-1.5 rounded-full ${
-                              isPaid ? 'bg-emerald-600' : 'bg-amber-500'
+                              isFullyPaid
+                                ? 'bg-emerald-600'
+                                : isPartiallyPaid
+                                ? 'bg-amber-500'
+                                : 'bg-rose-500'
                             }`}
                           />
-                          <span>{isPaid ? 'Paid' : 'Pending'}</span>
+                          <span>
+                            {isFullyPaid
+                              ? 'Paid'
+                              : isPartiallyPaid
+                              ? 'Partially Paid'
+                              : 'Unpaid'}
+                          </span>
                         </span>
 
                         <button
@@ -980,11 +1156,12 @@ export const FinanceAndSettingsViews: React.FC<
                               company,
                               selectedMonth,
                               currency,
-                              isPaid,
+                              isPaid: isFullyPaid,
+                              amountPaid: partnerAmountPaid,
                             });
                           }}
                           className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
-                          title="Download PDF report of software, WhatsApp, and chatbot charges for this partner"
+                          title="Download PDF invoice & report of institutes, software, WhatsApp, chatbot charges, payment, and dues for this partner"
                         >
                           <Download className="w-3.5 h-3.5 text-indigo-600" />
                           <span>PDF Report</span>
@@ -1002,20 +1179,42 @@ export const FinanceAndSettingsViews: React.FC<
 
                         <button
                           type="button"
-                          onClick={() =>
-                            onTogglePartnerPaid(p.id, selectedMonth)
-                          }
-                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                            isPaid
-                              ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                              : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                          }`}
+                          onClick={() => {
+                            setPaymentPartnerModal({
+                              partner: p,
+                              totalPayout: finalPayout,
+                              currentPaid: partnerAmountPaid,
+                            });
+                            setPartnerPaymentInput(
+                              String(
+                                partnerAmountPaid > 0
+                                  ? partnerAmountPaid
+                                  : finalPayout
+                              )
+                            );
+                          }}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs"
                         >
-                          <UserCheck className="w-3.5 h-3.5" />
-                          <span>
-                            {isPaid ? 'Mark Pending' : 'Mark as Paid'}
-                          </span>
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>Make Payment</span>
                         </button>
+
+                        {(isFullyPaid || isPartiallyPaid) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onUpdatePartnerPayment) {
+                                onUpdatePartnerPayment(p.id, selectedMonth, 0);
+                              } else {
+                                onTogglePartnerPaid(p.id, selectedMonth);
+                              }
+                            }}
+                            className="px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 border border-slate-200"
+                            title="Mark partner as Unpaid and remove from monthly expenses"
+                          >
+                            <span>Mark Unpaid</span>
+                          </button>
+                        )}
 
                         <button
                           type="button"
@@ -1030,7 +1229,7 @@ export const FinanceAndSettingsViews: React.FC<
 
                     {/* Separate Service Payouts summary pill row for this partner */}
                     {partnerSchools.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2 bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100 text-xs">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100 text-xs">
                         <div>
                           <span className="text-[10px] text-slate-500 block">Software Cut to {p.name}</span>
                           <span className="font-mono font-semibold text-indigo-900">
@@ -1049,31 +1248,49 @@ export const FinanceAndSettingsViews: React.FC<
                             {formatCurrency(partnerChatbotSum, currency)}
                           </span>
                         </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">Amount Paid to {p.name}</span>
+                          <span className="font-mono font-bold text-emerald-700">
+                            {formatCurrency(partnerAmountPaid, currency)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">Remaining Partner Dues</span>
+                          <span
+                            className={`font-mono font-bold ${
+                              partnerRemainingDues > 0
+                                ? 'text-rose-600'
+                                : 'text-emerald-600'
+                            }`}
+                          >
+                            {formatCurrency(partnerRemainingDues, currency)}
+                          </span>
+                        </div>
                       </div>
                     )}
 
                     {/* Assigned Schools by School Name + Remaining Customer Amount + How Much Paid from Each School */}
-                    <div className="bg-slate-50/80 rounded-xl p-3 border border-slate-200/80 space-y-2">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between flex-wrap gap-2">
+                    <div className="bg-slate-50/80 rounded-xl p-3.5 border border-slate-200/80 space-y-3">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center justify-between flex-wrap gap-2">
                         <span>
-                          {term.plural} assigned to {p.name} &amp; Remaining Amount / Payout:
+                          Contributing {term.plural} for {p.name} ({partnerSchools.length} {partnerSchools.length === 1 ? term.singular : term.plural}):
                         </span>
                         {partnerSchools.length > 0 && (
-                          <div className="flex items-center gap-3 font-mono text-xs">
-                            <span className="text-slate-600">
-                              Total Remaining:{' '}
-                              <strong
-                                className={
-                                  schoolRemainingSum > 0
-                                    ? 'text-rose-600 font-bold'
-                                    : 'text-emerald-600'
-                                }
-                              >
-                                {formatCurrency(schoolRemainingSum, currency)}
-                              </strong>
+                          <div className="flex items-center gap-3 font-mono text-xs flex-wrap">
+                            <span className="text-indigo-700 font-semibold">
+                              Total Partner Cut: {formatCurrency(finalPayout, currency)}
                             </span>
-                            <span className="text-indigo-600 font-semibold">
-                              {formatCurrency(schoolPayoutsSum, currency)} payout
+                            <span className="text-emerald-700 font-semibold">
+                              Paid: {formatCurrency(partnerAmountPaid, currency)}
+                            </span>
+                            <span
+                              className={`font-bold ${
+                                partnerRemainingDues > 0
+                                  ? 'text-rose-600'
+                                  : 'text-emerald-600'
+                              }`}
+                            >
+                              Partner Dues: {formatCurrency(partnerRemainingDues, currency)}
                             </span>
                           </div>
                         )}
@@ -1081,72 +1298,98 @@ export const FinanceAndSettingsViews: React.FC<
 
                       {partnerSchools.length === 0 ? (
                         <div className="text-xs text-slate-400 italic py-1">
-                          No {term.plural.toLowerCase()} linked yet. In the &quot;Add {term.singular}&quot; or &quot;Edit {term.singular}&quot; view, check &quot;Partner Payment&quot; and choose {p.name} to assign {term.plural.toLowerCase()}.
+                          No contributing {term.plural.toLowerCase()} for {p.name} in {selectedMonth}.
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                           {partnerSchools.map((item) => (
                             <div
                               key={item.client.id}
-                              className="bg-white p-3 rounded-lg border border-slate-200 flex items-center justify-between gap-3 shadow-2xs"
+                              className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between gap-2.5 shadow-2xs"
                             >
-                              <div className="min-w-0 flex-1">
-                                <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-1.5 justify-between">
-                                  <span className="truncate">🏫 {item.client.name}</span>
-                                  <span
-                                    className={`px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0 ${
-                                      item.schoolStatus === 'Paid'
-                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                        : item.schoolStatus === 'Partially Paid'
-                                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                        : 'bg-rose-50 text-rose-700 border border-rose-200'
-                                    }`}
-                                  >
-                                    {item.schoolStatus}
-                                  </span>
-                                </div>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mt-2 bg-slate-50/70 p-2 rounded-md border border-slate-100 text-[11px]">
-                                  <div>
-                                    <div className="text-[10px] text-slate-400">Total Billed</div>
-                                    <div className="font-mono font-semibold text-slate-800">
-                                      {formatCurrency(item.schoolTotal, currency)}
-                                    </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-xs font-bold text-slate-900 truncate">
+                                    🏫 {item.client.name}
                                   </div>
-                                  <div>
-                                    <div className="text-[10px] text-slate-400">Paid by Customer</div>
-                                    <div className="font-mono font-semibold text-emerald-700">
-                                      {formatCurrency(item.schoolPaid, currency)}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-[10px] text-slate-400">Remaining Amount</div>
-                                    <div
-                                      className={`font-mono font-bold ${
-                                        item.schoolRemaining > 0
-                                          ? 'text-rose-600'
-                                          : 'text-emerald-600'
-                                      }`}
-                                    >
-                                      {formatCurrency(item.schoolRemaining, currency)}
-                                    </div>
+                                  <div className="text-[10px] text-slate-400 font-mono truncate">
+                                    {item.client.phone} {item.client.address ? `· ${item.client.address}` : ''}
                                   </div>
                                 </div>
-                                <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2 mt-1.5">
-                                  <span>
-                                    Payout to partner:{' '}
-                                    <strong className="text-indigo-600 font-mono">
-                                      {formatCurrency(item.totalPay, currency)}
-                                    </strong>
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setDetailPartnerModal(p)}
-                                    className="px-2 py-0.5 text-[11px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-colors shrink-0 flex items-center gap-1"
-                                  >
-                                    <Eye className="w-3 h-3" />
-                                    <span>Detail</span>
-                                  </button>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                                  Cut: {formatCurrency(item.totalPay, currency)}
+                                </span>
+                              </div>
+
+                              {/* School Charges Paid to User (Software, WhatsApp, Chatbot) */}
+                              <div className="bg-blue-50/40 border border-blue-100 rounded-lg p-2 text-[11px]">
+                                <div className="text-[10px] font-semibold text-blue-900 mb-1">
+                                  {term.singular} Charges (Software / WhatsApp / Chatbot):
                                 </div>
+                                <div className="grid grid-cols-3 gap-1.5 font-mono">
+                                  <div>
+                                    <span className="text-[9px] text-slate-500 block font-sans">Software</span>
+                                    <span className="font-semibold text-slate-800">
+                                      {formatCurrency(item.softwareCharges, currency)}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] text-slate-500 block font-sans">WhatsApp</span>
+                                    <span className="font-semibold text-slate-800">
+                                      {formatCurrency(item.whatsappCharges, currency)}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] text-slate-500 block font-sans">Chatbot</span>
+                                    <span className="font-semibold text-slate-800">
+                                      {formatCurrency(item.chatbotCharges, currency)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Partner's Cut Breakdown from this School */}
+                              <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-2 text-[11px]">
+                                <div className="text-[10px] font-semibold text-indigo-900 mb-1">
+                                  {p.name} Partner Cut (Software / WhatsApp / Chatbot):
+                                </div>
+                                <div className="grid grid-cols-3 gap-1.5 font-mono">
+                                  <div>
+                                    <span className="text-[9px] text-indigo-500 block font-sans">SW Cut</span>
+                                    <span className="font-semibold text-indigo-800">
+                                      {formatCurrency(item.softwarePay, currency)}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] text-indigo-500 block font-sans">WA Cut</span>
+                                    <span className="font-semibold text-indigo-800">
+                                      {formatCurrency(item.whatsappPay, currency)}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] text-indigo-500 block font-sans">CB Cut</span>
+                                    <span className="font-semibold text-indigo-800">
+                                      {formatCurrency(item.chatbotPay, currency)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="text-[11px] text-slate-600 flex items-center justify-between gap-2 pt-0.5">
+                                <span>
+                                  Total Cut to {p.name}:{' '}
+                                  <strong className="text-indigo-700 font-mono">
+                                    {formatCurrency(item.totalPay, currency)}
+                                  </strong>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setDetailPartnerModal(p)}
+                                  className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors shrink-0 flex items-center gap-1"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  <span>Full Detail</span>
+                                </button>
                               </div>
                             </div>
                           ))}
@@ -1190,8 +1433,196 @@ export const FinanceAndSettingsViews: React.FC<
           </div>
         </div>
 
+        {/* Centered Make Partner Payment Modal */}
+        {paymentPartnerModal && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Make Partner Payment
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {paymentPartnerModal.partner.name} ·{' '}
+                      <strong>{selectedMonth}</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPaymentPartnerModal(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {(() => {
+                const enteredAmount = Math.max(
+                  0,
+                  Number(partnerPaymentInput) || 0
+                );
+                const liveDues = Math.max(
+                  0,
+                  paymentPartnerModal.totalPayout - enteredAmount
+                );
+                const liveStatus =
+                  enteredAmount <= 0
+                    ? 'Unpaid'
+                    : enteredAmount >= paymentPartnerModal.totalPayout &&
+                      paymentPartnerModal.totalPayout > 0
+                    ? 'Paid in Full'
+                    : 'Partially Paid';
+
+                return (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (onUpdatePartnerPayment) {
+                        onUpdatePartnerPayment(
+                          paymentPartnerModal.partner.id,
+                          selectedMonth,
+                          enteredAmount
+                        );
+                      } else {
+                        onTogglePartnerPaid(
+                          paymentPartnerModal.partner.id,
+                          selectedMonth
+                        );
+                      }
+                      setPaymentPartnerModal(null);
+                    }}
+                    className="space-y-4 text-xs"
+                  >
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+                        <div className="text-[10px] text-indigo-700 font-medium">
+                          Total Partner Cut
+                        </div>
+                        <div className="text-sm font-bold text-indigo-900 font-mono mt-1">
+                          {formatCurrency(
+                            paymentPartnerModal.totalPayout,
+                            currency
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                        <div className="text-[10px] text-emerald-700 font-medium">
+                          Amount Paid
+                        </div>
+                        <div className="text-sm font-bold text-emerald-800 font-mono mt-1">
+                          {formatCurrency(enteredAmount, currency)}
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200">
+                        <div className="text-[10px] text-rose-700 font-medium">
+                          Remaining Dues
+                        </div>
+                        <div className="text-sm font-bold text-rose-700 font-mono mt-1">
+                          {formatCurrency(liveDues, currency)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="font-semibold text-slate-700">
+                          Enter Payment Amount ({currency})
+                        </label>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                            liveStatus === 'Paid in Full'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : liveStatus === 'Partially Paid'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {liveStatus}
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        required
+                        value={partnerPaymentInput}
+                        onChange={(e) => setPartnerPaymentInput(e.target.value)}
+                        placeholder="Enter amount paid to partner"
+                        className="w-full px-3.5 py-2.5 text-base font-mono font-bold rounded-xl border border-slate-300 focus:border-emerald-600 focus:outline-none"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1.5">
+                        You can pay partially or in full. Any unpaid balance ({formatCurrency(liveDues, currency)}) will automatically show as Partner Dues on the interface and partner PDF invoice. Setting to 0 marks as Unpaid and removes from monthly expenses.
+                      </p>
+                    </div>
+
+                    {/* Quick Amount Buttons */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPartnerPaymentInput(
+                            String(paymentPartnerModal.totalPayout)
+                          )
+                        }
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold text-[11px] transition-colors"
+                      >
+                        Full Payout ({formatCurrency(paymentPartnerModal.totalPayout, currency)})
+                      </button>
+                      {paymentPartnerModal.totalPayout > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPartnerPaymentInput(
+                              String(
+                                Math.round(paymentPartnerModal.totalPayout / 2)
+                              )
+                            )
+                          }
+                          className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-semibold text-[11px] transition-colors"
+                        >
+                          50% Partial ({formatCurrency(Math.round(paymentPartnerModal.totalPayout / 2), currency)})
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setPartnerPaymentInput('0')}
+                        className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-[11px] transition-colors"
+                      >
+                        Unpaid (0)
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentPartnerModal(null)}
+                        className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-xs"
+                      >
+                        Save Payment
+                      </button>
+                    </div>
+                  </form>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
         {/* Detailed Partner & School Service Commission Modal ("See Details") */}
-        {detailPartnerModal && (
+        {activeDetailPartner && (
           <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl border border-slate-200 max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto">
               <div className="flex items-start justify-between border-b border-slate-100 pb-4">
@@ -1202,10 +1633,10 @@ export const FinanceAndSettingsViews: React.FC<
                     </div>
                     <div>
                       <h3 className="text-base font-bold text-slate-900">
-                        Partner Payout Details — {detailPartnerModal.name}
+                        Partner Payout Details — {activeDetailPartner.name}
                       </h3>
                       <p className="text-xs text-slate-500">
-                        Phone: {detailPartnerModal.phone} · Billing Month:{' '}
+                        Phone: {activeDetailPartner.phone} · Billing Month:{' '}
                         <strong>{selectedMonth}</strong>
                       </p>
                     </div>
@@ -1215,13 +1646,38 @@ export const FinanceAndSettingsViews: React.FC<
                   <button
                     type="button"
                     onClick={() => {
+                      setPaymentPartnerModal({
+                        partner: activeDetailPartner,
+                        totalPayout: modalTotalPayout,
+                        currentPaid: modalAmountPaid,
+                      });
+                      setPartnerPaymentInput(
+                        String(
+                          modalAmountPaid > 0
+                            ? modalAmountPaid
+                            : modalTotalPayout
+                        )
+                      );
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>Make Payment</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       downloadPartnerReportPdf({
-                        partner: detailPartnerModal,
+                        partner: activeDetailPartner,
                         partnerSchools: modalPartnerSchools,
                         company,
                         selectedMonth,
                         currency,
-                        isPaid: Boolean(detailPartnerModal.paidMonths[selectedMonth]?.paid),
+                        isPaid:
+                          Boolean(modalMonthRec?.paid) ||
+                          (modalTotalPayout > 0 &&
+                            modalAmountPaid >= modalTotalPayout),
+                        amountPaid: modalAmountPaid,
                       });
                     }}
                     className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
@@ -1241,52 +1697,44 @@ export const FinanceAndSettingsViews: React.FC<
               </div>
 
               {/* Top Summary Metrics for this Partner */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs">
                   <div className="text-slate-600 font-medium">
-                    Total Partner Payout
+                    Total Partner Cut
                   </div>
-                  <div className="text-lg font-bold text-indigo-700 font-mono tabular-nums mt-1">
+                  <div className="text-base font-bold text-indigo-700 font-mono tabular-nums mt-1">
                     {formatCurrency(modalTotalPayout, currency)}
                   </div>
                   <div className="text-[10px] text-indigo-500 mt-0.5">
-                    For {selectedMonth}
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                  <div className="text-slate-600 font-medium">
-                    Total Billed
-                  </div>
-                  <div className="text-lg font-bold text-slate-900 font-mono tabular-nums mt-1">
-                    {formatCurrency(modalTotalSchoolRevenue, currency)}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">
-                    {modalPartnerSchools.length} {term.plural}
+                    {modalPartnerSchools.length} Contributing {modalPartnerSchools.length === 1 ? term.singular : term.plural} ({selectedMonth})
                   </div>
                 </div>
 
                 <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
                   <div className="text-emerald-800 font-medium">
-                    Customer Paid
+                    Paid to Partner
                   </div>
-                  <div className="text-lg font-bold text-emerald-700 font-mono tabular-nums mt-1">
-                    {formatCurrency(modalTotalSchoolPaid, currency)}
+                  <div className="text-base font-bold text-emerald-700 font-mono tabular-nums mt-1">
+                    {formatCurrency(modalAmountPaid, currency)}
                   </div>
                   <div className="text-[10px] text-emerald-600 mt-0.5">
-                    Received
+                    {modalAmountPaid >= modalTotalPayout && modalTotalPayout > 0
+                      ? 'Paid in Full'
+                      : modalAmountPaid > 0
+                      ? 'Partially Paid'
+                      : 'Unpaid'}
                   </div>
                 </div>
 
                 <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs">
                   <div className="text-rose-800 font-medium">
-                    Remaining Amount
+                    Partner Dues
                   </div>
-                  <div className="text-lg font-bold text-rose-600 font-mono tabular-nums mt-1">
-                    {formatCurrency(modalTotalSchoolRemaining, currency)}
+                  <div className="text-base font-bold text-rose-600 font-mono tabular-nums mt-1">
+                    {formatCurrency(modalPartnerDues, currency)}
                   </div>
                   <div className="text-[10px] text-rose-500 mt-0.5">
-                    Customer balance
+                    Remaining to pay partner
                   </div>
                 </div>
               </div>
@@ -1316,12 +1764,12 @@ export const FinanceAndSettingsViews: React.FC<
               {/* Service Charges Breakdown by School */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Itemized Service Charges &amp; Remaining Amount Breakdown by {term.singular}
+                  Itemized Partner Cut Breakdown by Contributing {term.singular}
                 </h4>
 
                 {modalPartnerSchools.length === 0 ? (
                   <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-slate-200">
-                    No individual {term.plural.toLowerCase()} linked to this partner yet. This partner currently receives a fixed monthly payment of {formatCurrency(detailPartnerModal.monthlyPayment, currency)}.
+                    No contributing {term.plural.toLowerCase()} for this partner in {selectedMonth}. Fixed monthly payment: {formatCurrency(activeDetailPartner.monthlyPayment, currency)}.
                   </div>
                 ) : (
                   modalPartnerSchools.map((item) => (
@@ -1334,17 +1782,6 @@ export const FinanceAndSettingsViews: React.FC<
                         <div>
                           <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
                             <span>🏫 {item.client.name}</span>
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                                item.schoolStatus === 'Paid'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : item.schoolStatus === 'Partially Paid'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {term.singular} Status: {item.schoolStatus}
-                            </span>
                           </div>
                           <div className="text-[11px] text-slate-500">
                             {item.client.address || 'No address'} · Contact:{' '}
@@ -1354,39 +1791,11 @@ export const FinanceAndSettingsViews: React.FC<
 
                         <div className="text-right">
                           <div className="text-[11px] text-slate-500">
-                            Partner Payment from this {term.singular.toLowerCase()}
+                            Partner Cut from this {term.singular.toLowerCase()}
                           </div>
                           <div className="text-sm font-bold text-indigo-600 font-mono">
                             {formatCurrency(item.totalPay, currency)}
                           </div>
-                        </div>
-                      </div>
-
-                      {/* Customer Dues & Payment Status Strip */}
-                      <div className="px-4 py-2.5 bg-slate-100/60 border-b border-slate-200 grid grid-cols-3 gap-2 text-xs">
-                        <div>
-                          <span className="text-[10px] text-slate-500 block">Total Charged to Customer</span>
-                          <span className="font-mono font-bold text-slate-900">
-                            {formatCurrency(item.schoolTotal, currency)}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-500 block">Amount Paid by Customer</span>
-                          <span className="font-mono font-bold text-emerald-700">
-                            {formatCurrency(item.schoolPaid, currency)}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-500 block">Remaining Amount (Customer Dues)</span>
-                          <span
-                            className={`font-mono font-bold ${
-                              item.schoolRemaining > 0
-                                ? 'text-rose-600'
-                                : 'text-emerald-600'
-                            }`}
-                          >
-                            {formatCurrency(item.schoolRemaining, currency)}
-                          </span>
                         </div>
                       </div>
 
@@ -1511,12 +1920,16 @@ export const FinanceAndSettingsViews: React.FC<
                     type="button"
                     onClick={() => {
                       downloadPartnerReportPdf({
-                        partner: detailPartnerModal,
+                        partner: activeDetailPartner,
                         partnerSchools: modalPartnerSchools,
                         company,
                         selectedMonth,
                         currency,
-                        isPaid: Boolean(detailPartnerModal.paidMonths[selectedMonth]?.paid),
+                        isPaid:
+                          Boolean(modalMonthRec?.paid) ||
+                          (modalTotalPayout > 0 &&
+                            modalAmountPaid >= modalTotalPayout),
+                        amountPaid: modalAmountPaid,
                       });
                     }}
                     className="px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"

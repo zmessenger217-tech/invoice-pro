@@ -399,7 +399,15 @@ export const INITIAL_CLIENTS: ClientEntity[] = [];
 
 export const INITIAL_EXPENSES: ExpenseItem[] = [];
 
-export const INITIAL_PARTNERS: PartnerItem[] = [];
+export const INITIAL_PARTNERS: PartnerItem[] = [
+  {
+    id: 'part-abdul-sattar',
+    name: 'ABDUL SATTAR',
+    phone: '+92 300 1234567',
+    monthlyPayment: 0,
+    paidMonths: {},
+  },
+];
 
 export function getMonthlyChartBaseline(monthOrYear?: string | number): {
   shortMonth: string;

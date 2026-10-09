@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
+  CheckCircle2,
   CheckSquare,
   ChevronLeft,
   ChevronRight,
@@ -13,6 +14,7 @@ import {
   ScrollText,
   Settings,
   ToggleLeft,
+  Trash2,
   UserPlus,
   Users,
   X,
@@ -38,6 +40,7 @@ import {
 } from './data/initialData';
 import {
   auth,
+  clearAllExpensesInFirestore,
   createExpenseInFirestore,
   deleteClientFromFirestore,
   deleteExpenseFromFirestore,
@@ -248,6 +251,27 @@ export default function App() {
   const [expenses, setExpenses] = useState<ExpenseItem[]>(INITIAL_EXPENSES);
 
   const [partners, setPartners] = useState<PartnerItem[]>(INITIAL_PARTNERS);
+
+  const [centerPopup, setCenterPopup] = useState<{
+    title: string;
+    message: string;
+    type: 'success' | 'delete' | 'info';
+  } | null>(null);
+  const popupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showCenterPopup = (
+    title: string,
+    message: string,
+    type: 'success' | 'delete' | 'info' = 'success'
+  ) => {
+    if (popupTimerRef.current) {
+      clearTimeout(popupTimerRef.current);
+    }
+    setCenterPopup({ title, message, type });
+    popupTimerRef.current = setTimeout(() => {
+      setCenterPopup(null);
+    }, 2200);
+  };
 
   const [editorClientId, setEditorClientId] = useState<string>('');
   const [invoiceDoc, setInvoiceDoc] = useState<InvoiceEditableDocument>(() =>
@@ -628,31 +652,131 @@ export default function App() {
     [activeLedgerRecords]
   );
 
+  const activeExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      const isPartnerExpense =
+        e.category === 'Partner Payout' ||
+        e.id.startsWith('exp-partner-') ||
+        Boolean(e.partnerId) ||
+        Boolean(e.partnerName);
+      if (!isPartnerExpense) return true;
+
+      const matchedPartner = partners.find(
+        (p) =>
+          p.id === e.partnerId ||
+          e.id.includes(p.id) ||
+          (e.partnerName &&
+            p.name.trim().toLowerCase() === e.partnerName.trim().toLowerCase())
+      );
+      if (!matchedPartner) return false;
+      const monthInfo = matchedPartner.paidMonths?.[e.month];
+      const hasPaidAmount =
+        monthInfo?.amountPaid !== undefined
+          ? Number(monthInfo.amountPaid) > 0
+          : Boolean(monthInfo?.paid);
+      return hasPaidAmount;
+    });
+  }, [expenses, partners]);
+
   const monthlyExpenses = useMemo(
     () =>
-      expenses
+      activeExpenses
         .filter((e) => e.month === selectedMonth)
         .reduce((sum, e) => sum + e.amount, 0),
-    [expenses, selectedMonth]
+    [activeExpenses, selectedMonth]
   );
 
   const partnerPayoutsTotal = useMemo(
     () =>
       partners.reduce((sum, p) => {
-        const isPaid = p.paidMonths[selectedMonth]?.paid;
-        const linkedSchoolsTotal = activeLedgerRecords
-          .filter(
-            (r) =>
-              (r.partnerId === p.id && r.partnerPaymentEnabled) ||
-              (clients.find((c) => c.id === r.invoiceNumber)?.partnerId === p.id)
-          )
-          .reduce((s, r) => s + (r.partnerTotalPayment || 0), 0);
+        const monthInfo = p.paidMonths[selectedMonth];
+        const isPaid = Boolean(monthInfo?.paid);
+        const isAbdulSattar =
+          p.id === 'part-abdul-sattar' ||
+          p.name.trim().toUpperCase().includes('ABDUL SATTAR') ||
+          partners.length === 1;
+        const linkedSchoolsTotal = activeClients
+          .map((c) => {
+            const rec = getOrComputeMonthlyRecord(c, selectedMonth);
+            const explicitPartnerId = rec.partnerId || c.partnerId;
+            const explicitPartnerName = (
+              rec.partnerName ||
+              c.partnerName ||
+              ''
+            )
+              .trim()
+              .toUpperCase();
+            const isExplicitlyThisPartner =
+              explicitPartnerId === p.id ||
+              (explicitPartnerName &&
+                explicitPartnerName === p.name.trim().toUpperCase());
+            const isExplicitlyOtherPartner =
+              Boolean(explicitPartnerId && explicitPartnerId !== p.id) &&
+              partners.some((other) => other.id === explicitPartnerId);
+            const isLinked =
+              isExplicitlyThisPartner ||
+              (isAbdulSattar && !isExplicitlyOtherPartner);
+            if (!isLinked) return 0;
+            const sw = Number(
+              rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+            );
+            const wa = Number(
+              rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+            );
+            const cb = Number(
+              rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+            );
+            const tot = Number(
+              rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
+            );
+            return tot > 0 ? tot : sw + wa + cb;
+          })
+          .reduce((s, val) => s + val, 0);
         const payout =
           linkedSchoolsTotal > 0 ? linkedSchoolsTotal : p.monthlyPayment || 0;
-        return sum + (isPaid ? payout : 0);
+        const paidAmt =
+          monthInfo?.amountPaid !== undefined
+            ? Number(monthInfo.amountPaid) || 0
+            : isPaid
+            ? payout
+            : 0;
+        return sum + paidAmt;
       }, 0),
-    [partners, activeLedgerRecords, clients, selectedMonth]
+    [partners, activeClients, selectedMonth]
   );
+
+  const handleResetMonthlyExpenses = async () => {
+    setExpenses([]);
+    const updatedPartners = partners.map((p) => ({
+      ...p,
+      paidMonths: {
+        ...p.paidMonths,
+        [selectedMonth]: {
+          paid: false,
+          amountPaid: 0,
+        },
+      },
+    }));
+    setPartners(updatedPartners);
+    showCenterPopup(
+      'Expenses Reset',
+      `Monthly expenses for ${selectedMonth} have been reset to 0.`,
+      'info'
+    );
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
+      try {
+        await clearAllExpensesInFirestore(activeUser.uid);
+        await Promise.all(
+          updatedPartners.map((p) =>
+            syncPartnerToFirestore(activeUser.uid, p, false)
+          )
+        );
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
 
   const handleUpdateCompany = async (updated: CompanyProfile) => {
     setCompany(updated);
@@ -879,6 +1003,11 @@ export default function App() {
     });
     setEditorClientId(client.id);
     setInvoiceDoc(buildEditableInvoiceFromClient(company, client, selectedMonth));
+    showCenterPopup(
+      isNew ? `${term.singular} Added` : `${term.singular} Updated`,
+      `${client.name} has been ${isNew ? 'added' : 'saved'} successfully.`,
+      'success'
+    );
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
@@ -1522,6 +1651,7 @@ export default function App() {
   };
 
   const handleDeleteClient = async (clientId: string) => {
+    const deletedTarget = clients.find((c) => c.id === clientId);
     const remaining = clients.filter((c) => c.id !== clientId);
     setClients(remaining);
     if (editorClientId === clientId) {
@@ -1531,6 +1661,11 @@ export default function App() {
         buildEditableInvoiceFromClient(company, nextClient, selectedMonth)
       );
     }
+    showCenterPopup(
+      `${term.singular} Deleted`,
+      `${deletedTarget?.name || term.singular} has been removed.`,
+      'delete'
+    );
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
@@ -1543,6 +1678,11 @@ export default function App() {
 
   const handleAddExpense = async (expense: ExpenseItem) => {
     setExpenses((prev) => [expense, ...prev]);
+    showCenterPopup(
+      'Expense Added',
+      `${expense.description} has been saved to expenses.`,
+      'success'
+    );
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
@@ -1555,6 +1695,11 @@ export default function App() {
 
   const handleDeleteExpense = async (expenseId: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== expenseId));
+    showCenterPopup(
+      'Expense Deleted',
+      'The expense entry has been removed.',
+      'delete'
+    );
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
@@ -1567,6 +1712,11 @@ export default function App() {
 
   const handleAddPartner = async (partner: PartnerItem) => {
     setPartners((prev) => [...prev, partner]);
+    showCenterPopup(
+      'Partner Added',
+      `${partner.name} has been added to your partners list.`,
+      'success'
+    );
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
@@ -1581,12 +1731,50 @@ export default function App() {
     const target = partners.find((p) => p.id === partnerId);
     if (!target) return;
 
-    const currentlyPaid = Boolean(target.paidMonths[month]?.paid);
+    const currentlyPaid = Boolean(
+      target.paidMonths[month]?.paid ||
+        Number(target.paidMonths[month]?.amountPaid) > 0
+    );
     const nextPaid = !currentlyPaid;
     const autoExpenseId = `exp-partner-${partnerId}-${month.replace(
       /\s+/g,
       '-'
     )}`;
+
+    const isAbdulSattar =
+      target.id === 'part-abdul-sattar' ||
+      target.name.trim().toUpperCase().includes('ABDUL SATTAR') ||
+      partners.length === 1;
+    const schoolsCut = clients
+      .filter((c) => c.enabled)
+      .map((c) => {
+        const r = getOrComputeMonthlyRecord(c, month);
+        const explicitPartnerId = r.partnerId || c.partnerId;
+        const isExplicitlyThis =
+          explicitPartnerId === partnerId ||
+          (r.partnerName || c.partnerName || '').trim().toUpperCase() ===
+            target.name.trim().toUpperCase();
+        const isExplicitlyOther =
+          Boolean(explicitPartnerId && explicitPartnerId !== partnerId) &&
+          partners.some((other) => other.id === explicitPartnerId);
+        if (!isExplicitlyThis && !(isAbdulSattar && !isExplicitlyOther)) {
+          return 0;
+        }
+        const sw = Number(
+          r.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+        );
+        const wa = Number(
+          r.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+        );
+        const cb = Number(
+          r.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+        );
+        const tot = Number(r.partnerTotalPayment ?? c.partnerTotalPayment ?? 0);
+        return tot > 0 ? tot : sw + wa + cb;
+      })
+      .reduce((sum, val) => sum + val, 0);
+    const payoutAmount =
+      schoolsCut > 0 ? schoolsCut : target.monthlyPayment;
 
     const updatedPartner: PartnerItem = {
       ...target,
@@ -1594,6 +1782,7 @@ export default function App() {
         ...target.paidMonths,
         [month]: {
           paid: nextPaid,
+          amountPaid: nextPaid ? payoutAmount : 0,
           paidDate: nextPaid ? `15 ${month}` : undefined,
           expenseId: nextPaid ? autoExpenseId : undefined,
         },
@@ -1605,18 +1794,7 @@ export default function App() {
     );
 
     const activeUser = firebaseUser || auth.currentUser;
-    if (nextPaid) {
-      const partnerSchools = clients
-        .filter((c) => c.enabled)
-        .map((c) => getOrComputeMonthlyRecord(c, month))
-        .filter((r) => r.partnerId === partnerId && r.partnerPaymentEnabled);
-      const schoolsCut = partnerSchools.reduce(
-        (sum, r) => sum + (r.partnerTotalPayment || 0),
-        0
-      );
-      const payoutAmount =
-        schoolsCut > 0 ? schoolsCut : target.monthlyPayment;
-
+    if (nextPaid && payoutAmount > 0) {
       const partnerExpense: ExpenseItem = {
         id: autoExpenseId,
         description: `Partner Payout — ${target.name}`,
@@ -1631,6 +1809,11 @@ export default function App() {
         partnerExpense,
         ...prev.filter((e) => e.id !== autoExpenseId),
       ]);
+      showCenterPopup(
+        'Partner Paid',
+        `Payment for ${target.name} has been recorded.`,
+        'success'
+      );
       if (activeUser) {
         try {
           await createExpenseInFirestore(activeUser.uid, partnerExpense);
@@ -1639,10 +1822,176 @@ export default function App() {
         }
       }
     } else {
-      setExpenses((prev) => prev.filter((e) => e.id !== autoExpenseId));
+      const toRemoveIds = expenses
+        .filter(
+          (e) =>
+            e.id === autoExpenseId ||
+            (e.month === month &&
+              (e.partnerId === partnerId ||
+                e.id.includes(partnerId) ||
+                (e.category === 'Partner Payout' &&
+                  e.partnerName?.trim().toLowerCase() ===
+                    target.name.trim().toLowerCase())))
+        )
+        .map((e) => e.id);
+      if (!toRemoveIds.includes(autoExpenseId)) {
+        toRemoveIds.push(autoExpenseId);
+      }
+      setExpenses((prev) => prev.filter((e) => !toRemoveIds.includes(e.id)));
+      showCenterPopup(
+        'Marked Unpaid',
+        `${target.name} marked as Unpaid and removed from monthly expenses.`,
+        'info'
+      );
       if (activeUser) {
         try {
-          await deleteExpenseFromFirestore(activeUser.uid, autoExpenseId);
+          await Promise.all(
+            toRemoveIds.map((id) =>
+              deleteExpenseFromFirestore(activeUser.uid, id).catch(() => {})
+            )
+          );
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
+
+    if (activeUser) {
+      try {
+        await syncPartnerToFirestore(activeUser.uid, updatedPartner, false);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleUpdatePartnerPayment = async (
+    partnerId: string,
+    month: string,
+    amountPaid: number
+  ) => {
+    const target = partners.find((p) => p.id === partnerId);
+    if (!target) return;
+
+    const cleanAmountPaid = Math.max(0, Number(amountPaid) || 0);
+    const isAbdulSattar =
+      target.id === 'part-abdul-sattar' ||
+      target.name.trim().toUpperCase().includes('ABDUL SATTAR') ||
+      partners.length === 1;
+    const schoolsCut = clients
+      .filter((c) => c.enabled)
+      .map((c) => {
+        const r = getOrComputeMonthlyRecord(c, month);
+        const explicitPartnerId = r.partnerId || c.partnerId;
+        const isExplicitlyThis =
+          explicitPartnerId === partnerId ||
+          (r.partnerName || c.partnerName || '').trim().toUpperCase() ===
+            target.name.trim().toUpperCase();
+        const isExplicitlyOther =
+          Boolean(explicitPartnerId && explicitPartnerId !== partnerId) &&
+          partners.some((other) => other.id === explicitPartnerId);
+        if (!isExplicitlyThis && !(isAbdulSattar && !isExplicitlyOther)) {
+          return 0;
+        }
+        const sw = Number(
+          r.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+        );
+        const wa = Number(
+          r.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+        );
+        const cb = Number(
+          r.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+        );
+        const tot = Number(r.partnerTotalPayment ?? c.partnerTotalPayment ?? 0);
+        return tot > 0 ? tot : sw + wa + cb;
+      })
+      .reduce((sum, val) => sum + val, 0);
+    const finalPayout = schoolsCut > 0 ? schoolsCut : target.monthlyPayment;
+
+    const isFullyPaid =
+      finalPayout > 0 ? cleanAmountPaid >= finalPayout : cleanAmountPaid > 0;
+    const autoExpenseId = `exp-partner-${partnerId}-${month.replace(
+      /\s+/g,
+      '-'
+    )}`;
+
+    const updatedPartner: PartnerItem = {
+      ...target,
+      paidMonths: {
+        ...target.paidMonths,
+        [month]: {
+          paid: isFullyPaid,
+          amountPaid: cleanAmountPaid,
+          paidDate: cleanAmountPaid > 0 ? `15 ${month}` : undefined,
+          expenseId: cleanAmountPaid > 0 ? autoExpenseId : undefined,
+        },
+      },
+    };
+
+    setPartners((prev) =>
+      prev.map((p) => (p.id === partnerId ? updatedPartner : p))
+    );
+
+    const activeUser = firebaseUser || auth.currentUser;
+    if (cleanAmountPaid > 0) {
+      const partnerExpense: ExpenseItem = {
+        id: autoExpenseId,
+        description: `Partner Payout (${isFullyPaid ? 'Full' : 'Partial'}) — ${target.name}`,
+        amount: cleanAmountPaid,
+        category: 'Partner Payout',
+        date: `15 ${month}`,
+        month,
+        partnerId: target.id,
+        partnerName: target.name,
+      };
+      setExpenses((prev) => [
+        partnerExpense,
+        ...prev.filter((e) => e.id !== autoExpenseId),
+      ]);
+      const remainingPartnerDues = Math.max(0, finalPayout - cleanAmountPaid);
+      showCenterPopup(
+        isFullyPaid ? 'Partner Paid in Full' : 'Partial Payment Saved',
+        isFullyPaid
+          ? `Full payment of ${company.currency || 'Rs.'} ${cleanAmountPaid.toLocaleString()} recorded for ${target.name}. Remaining Dues: ${company.currency || 'Rs.'} 0.`
+          : `Partial payment of ${company.currency || 'Rs.'} ${cleanAmountPaid.toLocaleString()} recorded for ${target.name}. Remaining Partner Dues: ${company.currency || 'Rs.'} ${remainingPartnerDues.toLocaleString()}.`,
+        'success'
+      );
+      if (activeUser) {
+        try {
+          await createExpenseInFirestore(activeUser.uid, partnerExpense);
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    } else {
+      const toRemoveIds = expenses
+        .filter(
+          (e) =>
+            e.id === autoExpenseId ||
+            (e.month === month &&
+              (e.partnerId === partnerId ||
+                e.id.includes(partnerId) ||
+                (e.category === 'Partner Payout' &&
+                  e.partnerName?.trim().toLowerCase() ===
+                    target.name.trim().toLowerCase())))
+        )
+        .map((e) => e.id);
+      if (!toRemoveIds.includes(autoExpenseId)) {
+        toRemoveIds.push(autoExpenseId);
+      }
+      setExpenses((prev) => prev.filter((e) => !toRemoveIds.includes(e.id)));
+      showCenterPopup(
+        'Marked Unpaid',
+        `${target.name} marked as Unpaid and removed from monthly expenses.`,
+        'info'
+      );
+      if (activeUser) {
+        try {
+          await Promise.all(
+            toRemoveIds.map((id) =>
+              deleteExpenseFromFirestore(activeUser.uid, id).catch(() => {})
+            )
+          );
         } catch (err) {
           console.error(err);
         }
@@ -1659,11 +2008,35 @@ export default function App() {
   };
 
   const handleDeletePartner = async (partnerId: string) => {
+    const deletedPartner = partners.find((p) => p.id === partnerId);
     setPartners((prev) => prev.filter((p) => p.id !== partnerId));
+    const toRemoveIds = expenses
+      .filter(
+        (e) =>
+          e.partnerId === partnerId ||
+          e.id.includes(partnerId) ||
+          (deletedPartner &&
+            e.partnerName?.trim().toLowerCase() ===
+              deletedPartner.name.trim().toLowerCase())
+      )
+      .map((e) => e.id);
+    if (toRemoveIds.length > 0) {
+      setExpenses((prev) => prev.filter((e) => !toRemoveIds.includes(e.id)));
+    }
+    showCenterPopup(
+      'Partner Deleted',
+      `${deletedPartner?.name || 'Partner'} has been removed.`,
+      'delete'
+    );
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
         await deletePartnerFromFirestore(activeUser.uid, partnerId);
+        await Promise.all(
+          toRemoveIds.map((id) =>
+            deleteExpenseFromFirestore(activeUser.uid, id).catch(() => {})
+          )
+        );
       } catch (err) {
         console.error(err);
       }
@@ -2134,6 +2507,7 @@ export default function App() {
               monthlyRevenue={monthlyRevenue}
               monthlyExpenses={monthlyExpenses}
               partnerPayoutsTotal={partnerPayoutsTotal}
+              onResetMonthlyExpenses={handleResetMonthlyExpenses}
               onSaveClient={handleSaveClient}
               onDeleteClient={handleDeleteClient}
               onRecordPaymentWithCharges={handleRecordPaymentWithCharges}
@@ -2210,7 +2584,7 @@ export default function App() {
               company={company}
               term={term}
               clients={clients}
-              expenses={expenses}
+              expenses={activeExpenses}
               partners={partners}
               selectedMonth={selectedMonth}
               setSelectedMonth={setSelectedMonth}
@@ -2222,6 +2596,7 @@ export default function App() {
               onDeleteExpense={handleDeleteExpense}
               onAddPartner={handleAddPartner}
               onTogglePartnerPaid={handleTogglePartnerPaid}
+              onUpdatePartnerPayment={handleUpdatePartnerPayment}
               onDeletePartner={handleDeletePartner}
               onToggleClientEnabled={handleToggleClientEnabled}
               onDeleteClient={handleDeleteClient}
@@ -2232,6 +2607,35 @@ export default function App() {
       </div>
 
       <OfflineIndicator />
+
+      {/* Global Centered Action Confirmation Popup */}
+      {centerPopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 pointer-events-none">
+          <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl px-6 py-5 max-w-sm w-full text-center pointer-events-auto animate-in fade-in zoom-in-95 duration-200">
+            <div
+              className={`w-12 h-12 rounded-full mx-auto flex items-center justify-center mb-3 ${
+                centerPopup.type === 'delete'
+                  ? 'bg-rose-100 text-rose-600'
+                  : centerPopup.type === 'info'
+                  ? 'bg-amber-100 text-amber-600'
+                  : 'bg-emerald-100 text-emerald-600'
+              }`}
+            >
+              {centerPopup.type === 'delete' ? (
+                <Trash2 className="w-6 h-6" />
+              ) : (
+                <CheckCircle2 className="w-6 h-6" />
+              )}
+            </div>
+            <h4 className="text-base font-bold text-slate-900">
+              {centerPopup.title}
+            </h4>
+            <p className="text-xs text-slate-600 mt-1">
+              {centerPopup.message}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Bottom Navigation Bar */}
       <nav className="fixed bottom-0 inset-x-0 z-30 h-14 bg-white border-t border-slate-200 grid grid-cols-5 md:hidden">

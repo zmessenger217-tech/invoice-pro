@@ -693,6 +693,18 @@ export function subscribeToWorkspaceRealtime(
         const firstRec = Object.values(records).find(
           (r) => r && typeof r === 'object'
         );
+        const partnerRec =
+          Object.values(records).find(
+            (r) =>
+              r &&
+              typeof r === 'object' &&
+              (r.partnerPaymentEnabled ||
+                r.partnerId ||
+                Number(r.partnerTotalPayment) > 0 ||
+                Number(r.partnerSoftwareCharges) > 0 ||
+                Number(r.partnerWhatsappCharges) > 0 ||
+                Number(r.partnerChatbotCharges) > 0)
+          ) || firstRec;
         const hasPerMonthRec = Object.values(records).some(
           (r) => r && typeof r === 'object' && r.whatsappBillingType === 'per_month'
         );
@@ -720,14 +732,14 @@ export function subscribeToWorkspaceRealtime(
           whatsappCharges: Number(data.whatsappCharges) || 0,
           chatbotEnabled: Boolean(data.chatbotEnabled),
           chatbotCharges: Number(data.chatbotCharges) || 0,
-          partnerId: firstRec?.partnerId,
-          partnerName: firstRec?.partnerName,
-          partnerPaymentEnabled: firstRec?.partnerPaymentEnabled,
-          partnerSoftwareCharges: firstRec?.partnerSoftwareCharges,
-          partnerWhatsappCharges: firstRec?.partnerWhatsappCharges,
-          partnerChatbotCharges: firstRec?.partnerChatbotCharges,
-          partnerTotalPayment: firstRec?.partnerTotalPayment,
-          partnerNote: firstRec?.partnerNote,
+          partnerId: partnerRec?.partnerId,
+          partnerName: partnerRec?.partnerName,
+          partnerPaymentEnabled: partnerRec?.partnerPaymentEnabled,
+          partnerSoftwareCharges: partnerRec?.partnerSoftwareCharges,
+          partnerWhatsappCharges: partnerRec?.partnerWhatsappCharges,
+          partnerChatbotCharges: partnerRec?.partnerChatbotCharges,
+          partnerTotalPayment: partnerRec?.partnerTotalPayment,
+          partnerNote: partnerRec?.partnerNote,
           monthlyRecords: data.monthlyRecords || {},
         };
       });
@@ -744,6 +756,29 @@ export function subscribeToWorkspaceRealtime(
       where('ownerId', '==', userId)
     ),
     (snap) => {
+      const resetFlagKey = `probill_expenses_reset_zero_v4_${userId}`;
+      let alreadyReset = false;
+      try {
+        alreadyReset = localStorage.getItem(resetFlagKey) === 'true';
+      } catch {
+        alreadyReset = false;
+      }
+
+      if (!alreadyReset) {
+        try {
+          localStorage.setItem(resetFlagKey, 'true');
+        } catch {
+          // ignore
+        }
+        snap.docs.forEach((d) => {
+          deleteDoc(doc(db, 'workspaces', userId, 'expenses', d.id)).catch(
+            () => {}
+          );
+        });
+        callbacks.onExpensesChange([]);
+        return;
+      }
+
       const list: ExpenseItem[] = snap.docs.map((d) => {
         const data = d.data();
         return {
@@ -887,6 +922,18 @@ export async function loadOrBootstrapWorkspace(
       const firstRec = Object.values(records).find(
         (r) => r && typeof r === 'object'
       );
+      const partnerRec =
+        Object.values(records).find(
+          (r) =>
+            r &&
+            typeof r === 'object' &&
+            (r.partnerPaymentEnabled ||
+              r.partnerId ||
+              Number(r.partnerTotalPayment) > 0 ||
+              Number(r.partnerSoftwareCharges) > 0 ||
+              Number(r.partnerWhatsappCharges) > 0 ||
+              Number(r.partnerChatbotCharges) > 0)
+        ) || firstRec;
       const hasPerMonthRec = Object.values(records).some(
         (r) => r && typeof r === 'object' && r.whatsappBillingType === 'per_month'
       );
@@ -914,14 +961,14 @@ export async function loadOrBootstrapWorkspace(
         whatsappCharges: Number(data.whatsappCharges) || 0,
         chatbotEnabled: Boolean(data.chatbotEnabled),
         chatbotCharges: Number(data.chatbotCharges) || 0,
-        partnerId: firstRec?.partnerId,
-        partnerName: firstRec?.partnerName,
-        partnerPaymentEnabled: firstRec?.partnerPaymentEnabled,
-        partnerSoftwareCharges: firstRec?.partnerSoftwareCharges,
-        partnerWhatsappCharges: firstRec?.partnerWhatsappCharges,
-        partnerChatbotCharges: firstRec?.partnerChatbotCharges,
-        partnerTotalPayment: firstRec?.partnerTotalPayment,
-        partnerNote: firstRec?.partnerNote,
+        partnerId: partnerRec?.partnerId,
+        partnerName: partnerRec?.partnerName,
+        partnerPaymentEnabled: partnerRec?.partnerPaymentEnabled,
+        partnerSoftwareCharges: partnerRec?.partnerSoftwareCharges,
+        partnerWhatsappCharges: partnerRec?.partnerWhatsappCharges,
+        partnerChatbotCharges: partnerRec?.partnerChatbotCharges,
+        partnerTotalPayment: partnerRec?.partnerTotalPayment,
+        partnerNote: partnerRec?.partnerNote,
         monthlyRecords: data.monthlyRecords || {},
       };
     });
@@ -936,18 +983,42 @@ export async function loadOrBootstrapWorkspace(
         where('ownerId', '==', userId)
       )
     );
-    expenses = eSnap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        description: data.description,
-        amount: Number(data.amount) || 0,
-        category: data.category,
-        date: data.date,
-        month: data.month,
-        partnerName: data.partnerName || undefined,
-      };
-    });
+    const resetFlagKey = `probill_expenses_reset_zero_v4_${userId}`;
+    let alreadyReset = false;
+    try {
+      alreadyReset = localStorage.getItem(resetFlagKey) === 'true';
+    } catch {
+      alreadyReset = false;
+    }
+
+    if (!alreadyReset) {
+      try {
+        localStorage.setItem(resetFlagKey, 'true');
+      } catch {
+        // ignore
+      }
+      await Promise.all(
+        eSnap.docs.map((d) =>
+          deleteDoc(doc(db, 'workspaces', userId, 'expenses', d.id)).catch(
+            () => {}
+          )
+        )
+      );
+      expenses = [];
+    } else {
+      expenses = eSnap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          description: data.description,
+          amount: Number(data.amount) || 0,
+          category: data.category,
+          date: data.date,
+          month: data.month,
+          partnerName: data.partnerName || undefined,
+        };
+      });
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, expensesPath);
   }
@@ -971,6 +1042,10 @@ export async function loadOrBootstrapWorkspace(
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, partnersPath);
+  }
+
+  if (partners.length === 0) {
+    partners = defaultPartners;
   }
 
   return {
@@ -1160,20 +1235,68 @@ export async function createExpenseInFirestore(
 
   const cleanId = sanitizeId(expense.id);
   const path = `workspaces/${cleanUid}/expenses/${cleanId}`;
+  const ref = doc(db, 'workspaces', cleanUid, 'expenses', cleanId);
+
+  let exists = false;
   try {
-    await setDoc(doc(db, 'workspaces', cleanUid, 'expenses', cleanId), {
-      ownerId: cleanUid,
-      description: clampString(expense.description, 160, 'Expense'),
-      amount: Math.max(0, Number(expense.amount) || 0),
-      category: expense.category,
-      date: clampString(expense.date, 30, '15-05-2026'),
-      month: clampString(expense.month, 40, 'May 2026'),
-      partnerName: clampString(expense.partnerName, 120, ''),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    const snap = await getDoc(ref);
+    exists = snap.exists();
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+
+  try {
+    if (!exists) {
+      await setDoc(ref, {
+        ownerId: cleanUid,
+        description: clampString(expense.description, 160, 'Expense'),
+        amount: Math.max(0, Number(expense.amount) || 0),
+        category: expense.category,
+        date: clampString(expense.date, 30, '15-05-2026'),
+        month: clampString(expense.month, 40, 'May 2026'),
+        partnerName: clampString(expense.partnerName, 120, ''),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await updateDoc(ref, {
+        description: clampString(expense.description, 160, 'Expense'),
+        amount: Math.max(0, Number(expense.amount) || 0),
+        category: expense.category,
+        date: clampString(expense.date, 30, '15-05-2026'),
+        month: clampString(expense.month, 40, 'May 2026'),
+        partnerName: clampString(expense.partnerName, 120, ''),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      exists ? OperationType.UPDATE : OperationType.CREATE,
+      path
+    );
+  }
+}
+
+export async function clearAllExpensesInFirestore(
+  userId: string
+): Promise<void> {
+  const cleanUid = sanitizeId(userId);
+  const expensesPath = `workspaces/${cleanUid}/expenses`;
+  try {
+    const eSnap = await getDocs(
+      query(
+        collection(db, 'workspaces', cleanUid, 'expenses'),
+        where('ownerId', '==', cleanUid)
+      )
+    );
+    await Promise.all(
+      eSnap.docs.map((d) =>
+        deleteDoc(doc(db, 'workspaces', cleanUid, 'expenses', d.id))
+      )
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, expensesPath);
   }
 }
 

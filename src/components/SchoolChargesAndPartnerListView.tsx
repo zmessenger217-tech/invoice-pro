@@ -75,27 +75,33 @@ export const SchoolChargesAndPartnerListView: React.FC<
       const totalSchoolCharges = softwareCharges + whatsappCharges + chatbotCharges;
 
       // Partner Breakdown
-      const hasPartner = Boolean(
-        (rec.partnerId && rec.partnerPaymentEnabled) ||
-        (c.partnerId && c.partnerPaymentEnabled)
-      );
-      const resolvedPartnerId = rec.partnerId || c.partnerId || '';
-      const partnerObj = partners.find((p) => p.id === resolvedPartnerId);
-      const resolvedPartnerName =
-        rec.partnerName || c.partnerName || partnerObj?.name || 'Assigned Partner';
+      const defaultPartner =
+        partners.find(
+          (p) =>
+            p.id === 'part-abdul-sattar' ||
+            p.name.trim().toUpperCase().includes('ABDUL SATTAR')
+        ) || (partners.length === 1 ? partners[0] : undefined);
 
-      const partnerSoftware = hasPartner
-        ? Number(rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0)
-        : 0;
-      const partnerWhatsapp = hasPartner
-        ? Number(rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0)
-        : 0;
-      const partnerChatbot = hasPartner
-        ? Number(rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0)
-        : 0;
-      const partnerTotal = hasPartner
-        ? Number(rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0)
-        : 0;
+      const explicitPartnerId = rec.partnerId || c.partnerId || '';
+      const resolvedPartnerId = explicitPartnerId || defaultPartner?.id || '';
+      const partnerObj =
+        partners.find((p) => p.id === resolvedPartnerId) || defaultPartner;
+      const swCut = Number(rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0);
+      const waCut = Number(rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0);
+      const cbCut = Number(rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0);
+      const rawPartnerTotal = Number(
+        rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
+      );
+      const computedPartnerTotal =
+        rawPartnerTotal > 0 ? rawPartnerTotal : swCut + waCut + cbCut;
+      const hasPartner = computedPartnerTotal > 0;
+      const resolvedPartnerName =
+        rec.partnerName || c.partnerName || partnerObj?.name || 'ABDUL SATTAR';
+
+      const partnerSoftware = hasPartner ? swCut : 0;
+      const partnerWhatsapp = hasPartner ? waCut : 0;
+      const partnerChatbot = hasPartner ? cbCut : 0;
+      const partnerTotal = hasPartner ? computedPartnerTotal : 0;
 
       // Company Net Profit from this school
       const companyNet = Math.max(0, totalSchoolCharges - partnerTotal);
@@ -223,6 +229,63 @@ export const SchoolChargesAndPartnerListView: React.FC<
     link.remove();
   };
 
+  const getLinkedSchoolsForPartner = (p: PartnerItem) => {
+    const isAbdulSattar =
+      p.id === 'part-abdul-sattar' ||
+      p.name.trim().toUpperCase().includes('ABDUL SATTAR') ||
+      partners.length === 1;
+
+    return clients
+      .filter((c) => c.enabled)
+      .map((c) => {
+        const rec = getOrComputeMonthlyRecord(c, selectedMonth);
+        const explicitPartnerId = rec.partnerId || c.partnerId;
+        const explicitPartnerName = (rec.partnerName || c.partnerName || '')
+          .trim()
+          .toUpperCase();
+        const isExplicitlyThisPartner =
+          explicitPartnerId === p.id ||
+          (explicitPartnerName &&
+            explicitPartnerName === p.name.trim().toUpperCase());
+        const isExplicitlyOtherPartner =
+          Boolean(explicitPartnerId && explicitPartnerId !== p.id) &&
+          partners.some((other) => other.id === explicitPartnerId);
+        const swPay = Number(
+          rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+        );
+        const waPay = Number(
+          rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+        );
+        const cbPay = Number(
+          rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+        );
+        const rawTotPay = Number(
+          rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
+        );
+        const totalPay = rawTotPay > 0 ? rawTotPay : swPay + waPay + cbPay;
+        const contributesToPartner =
+          totalPay > 0 || swPay > 0 || waPay > 0 || cbPay > 0;
+        const isLinked =
+          contributesToPartner &&
+          (isExplicitlyThisPartner ||
+            (isAbdulSattar && !isExplicitlyOtherPartner));
+        if (!isLinked) return null;
+
+        return {
+          client: c,
+          softwarePay: swPay,
+          whatsappPay: waPay,
+          chatbotPay: cbPay,
+          totalPay,
+          softwareCharges: Number(rec.softwareCharges || 0),
+          whatsappCharges: Number(rec.whatsappCharges || 0),
+          chatbotCharges: Number(rec.chatbotCharges || 0),
+          partnerNote: rec.partnerNote || c.partnerNote,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  };
+
   const handleDownloadPartnerReport = (targetPartnerId?: string) => {
     const selectedPid =
       targetPartnerId ||
@@ -230,38 +293,14 @@ export const SchoolChargesAndPartnerListView: React.FC<
       partnerFilter !== 'partner-only' &&
       partnerFilter !== 'no-partner'
         ? partnerFilter
+        : partners.length === 1
+        ? partners[0].id
         : undefined);
 
     if (selectedPid) {
       const partner = partners.find((p) => p.id === selectedPid);
       if (partner) {
-        const partnerSchools = clients
-          .filter((c) => c.enabled)
-          .map((c) => {
-            const rec = getOrComputeMonthlyRecord(c, selectedMonth);
-            const isLinked =
-              (rec.partnerId === partner.id && rec.partnerPaymentEnabled) ||
-              (c.partnerId === partner.id && c.partnerPaymentEnabled);
-            if (!isLinked) return null;
-            return {
-              client: c,
-              softwarePay: Number(
-                rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
-              ),
-              whatsappPay: Number(
-                rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
-              ),
-              chatbotPay: Number(
-                rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
-              ),
-              totalPay: Number(
-                rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
-              ),
-              partnerNote: rec.partnerNote || c.partnerNote,
-              schoolStatus: rec.status,
-            };
-          })
-          .filter((x): x is NonNullable<typeof x> => x !== null);
+        const partnerSchools = getLinkedSchoolsForPartner(partner);
 
         downloadPartnerReportPdf({
           partner,
@@ -269,6 +308,8 @@ export const SchoolChargesAndPartnerListView: React.FC<
           company,
           selectedMonth,
           currency,
+          isPaid: Boolean(partner.paidMonths[selectedMonth]?.paid),
+          amountPaid: partner.paidMonths[selectedMonth]?.amountPaid,
         });
         return;
       }
@@ -276,33 +317,7 @@ export const SchoolChargesAndPartnerListView: React.FC<
 
     // Otherwise download all partners summary report
     const allPartnerData = partners.map((p) => {
-      const schools = clients
-        .filter((c) => c.enabled)
-        .map((c) => {
-          const rec = getOrComputeMonthlyRecord(c, selectedMonth);
-          const isLinked =
-            (rec.partnerId === p.id && rec.partnerPaymentEnabled) ||
-            (c.partnerId === p.id && c.partnerPaymentEnabled);
-          if (!isLinked) return null;
-          return {
-            client: c,
-            softwarePay: Number(
-              rec.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
-            ),
-            whatsappPay: Number(
-              rec.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
-            ),
-            chatbotPay: Number(
-              rec.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
-            ),
-            totalPay: Number(
-              rec.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
-            ),
-            partnerNote: rec.partnerNote || c.partnerNote,
-            schoolStatus: rec.status,
-          };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null);
+      const schools = getLinkedSchoolsForPartner(p);
 
       const totalSoftware = schools.reduce((sum, s) => sum + s.softwarePay, 0);
       const totalWhatsapp = schools.reduce((sum, s) => sum + s.whatsappPay, 0);
@@ -364,25 +379,17 @@ export const SchoolChargesAndPartnerListView: React.FC<
             ))}
           </select>
 
-          <button
-            type="button"
-            onClick={() => handleDownloadPartnerReport()}
-            className="px-3 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg flex items-center gap-1.5 shadow-2xs transition-colors"
-            title="Download PDF report showing software, WhatsApp, and chatbot cuts to partner only"
+          {/* Month-based Partner Cut display replacing the button */}
+          <div
+            className="px-3 py-2 text-xs font-semibold text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center gap-2 shadow-2xs"
+            title={`Total partner cut for ${selectedMonth}`}
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Partner PDF Report</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-1.5 shadow-2xs transition-colors"
-            title="Download CSV Spreadsheet"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
-            <span>Export CSV</span>
-          </button>
+            <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+            <span className="text-slate-600 font-medium">Partner Cut ({selectedMonth}):</span>
+            <span className="font-mono font-bold text-indigo-700 tabular-nums">
+              {formatCurrency(totals.partnerTotal, currency)}
+            </span>
+          </div>
 
           <button
             type="button"
