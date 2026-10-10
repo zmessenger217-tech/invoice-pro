@@ -19,6 +19,7 @@ import {
   SoftwareCategory,
 } from '../types';
 import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
+import { PWAInstallButton } from './PWAInstallModal';
 
 interface AuthAndOnboardingProps {
   mode: AuthScreenMode;
@@ -318,6 +319,15 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
                   Sign Up
                 </button>
               </p>
+
+              <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-600">Download InvoicePro:</span>
+                <PWAInstallButton
+                  company={company}
+                  onUpdateCompany={async () => {}}
+                  variant="topbar"
+                />
+              </div>
             </div>
 
             {/* Right Navy Showcase Panel */}
@@ -341,9 +351,16 @@ export const AuthAndOnboarding: React.FC<AuthAndOnboardingProps> = ({
               <h2 className="text-xl font-bold tracking-tight mb-2.5 max-w-xs">
                 Simplify Your Invoicing &amp; Finances
               </h2>
-              <p className="text-xs text-slate-300 leading-relaxed max-w-xs">
+              <p className="text-xs text-slate-300 leading-relaxed max-w-xs mb-6">
                 Track payments, manage expenses, create invoices and grow your business — all in one place.
               </p>
+              <div className="flex justify-center">
+                <PWAInstallButton
+                  company={company}
+                  onUpdateCompany={async () => {}}
+                  variant="topbar"
+                />
+              </div>
 
               <div className="flex items-center gap-1.5 mt-8">
                 <span className="w-5 h-1.5 rounded-full bg-blue-500" />

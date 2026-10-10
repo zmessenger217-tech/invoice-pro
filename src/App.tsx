@@ -547,6 +547,22 @@ export default function App() {
     img.src = DEFAULT_BRAND_LOGO_PATH;
   }, []);
 
+  // Dynamically update document title and favicon/app icon with company name and logo
+  useEffect(() => {
+    if (company.name) {
+      document.title = `${company.name} — Invoice & Finance Manager`;
+    }
+    const activeLogoUrl = resolveActiveLogoUrl(company.logoDataUrl);
+    const appleTouchIcon = document.getElementById('dynamic-apple-touch-icon') as HTMLLinkElement;
+    const favicon = document.getElementById('dynamic-favicon') as HTMLLinkElement;
+    if (appleTouchIcon && activeLogoUrl) {
+      appleTouchIcon.href = activeLogoUrl;
+    }
+    if (favicon && activeLogoUrl) {
+      favicon.href = activeLogoUrl;
+    }
+  }, [company.name, company.logoDataUrl]);
+
   // Listen to Firebase Auth state changes — only restore active tab session if user explicitly logged in during this session
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
