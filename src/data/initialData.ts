@@ -364,8 +364,8 @@ export function isClientInvoiceGenerated(
   month: string,
   receiptLog?: { clientId: string; month: string }[]
 ): boolean {
-  if (receiptLog && receiptLog.some((r) => r.clientId === client.id && r.month === month)) {
-    return true;
+  if (receiptLog) {
+    return receiptLog.some((r) => r.clientId === client.id && r.month === month);
   }
   const rec = client.monthlyRecords?.[month];
   return Boolean(rec?.invoiceGenerated);

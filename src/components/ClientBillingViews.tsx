@@ -2185,6 +2185,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
           currency
         )}!`
       );
+      setActiveTab('invoice-log');
     } catch (err) {
       console.error(err);
     } finally {
@@ -2204,6 +2205,20 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {onGenerateAllMonthlyInvoices && pendingClients.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowBatchModal(true)}
+              className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+              title={`Generate invoices for ${pendingClients.length} pending ${term.plural.toLowerCase()} for ${selectedMonth}`}
+            >
+              <Sparkles className="w-4 h-4 text-white" />
+              <span>
+                Generate Pending Invoices ({pendingClients.length})
+              </span>
+            </button>
+          )}
+
           {onGenerateAllMonthlyInvoices && batchActiveClients.length > 0 && (
             <button
               type="button"
@@ -2481,6 +2496,22 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             <strong className="text-slate-800">{selectedMonth}</strong>
           </div>
         </div>
+
+        {invListFilter === 'pending' && pendingClients.length > 0 && (
+          <div className="p-3.5 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <span className="font-medium text-amber-900">
+              You have {pendingClients.length} pending {term.plural.toLowerCase()} without an invoice for {selectedMonth}.
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowBatchModal(true)}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg shadow-xs flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Generate All {pendingClients.length} Pending Invoices</span>
+            </button>
+          </div>
+        )}
 
         {displayedClients.length === 0 ? (
           <div className="py-12 px-4 text-center space-y-3">

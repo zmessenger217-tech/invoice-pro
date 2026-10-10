@@ -37,6 +37,7 @@ import {
   INITIAL_COMPANY_PROFILE,
   INITIAL_EXPENSES,
   INITIAL_PARTNERS,
+  isClientInvoiceGenerated,
 } from './data/initialData';
 import {
   auth,
@@ -1176,6 +1177,21 @@ export default function App() {
     if (!target) return;
 
     const currentRec = getOrComputeMonthlyRecord(target, month);
+    const isAlreadyGenerated = isClientInvoiceGenerated(
+      target,
+      month,
+      company.receiptLog
+    );
+    if (isAlreadyGenerated) {
+      showCenterPopup(
+        'Invoice Already Generated',
+        `An invoice for ${target.name} has already been generated for ${month}. You cannot generate an invoice of the same school 2 times in one month.`,
+        'info'
+      );
+      handleOpenInvoiceInEditor(clientId, month);
+      return;
+    }
+
     const billingType =
       target.whatsappBillingType ||
       currentRec.whatsappBillingType ||
@@ -1298,8 +1314,17 @@ export default function App() {
   const handleGenerateAllMonthlyInvoices = async (
     month: string
   ): Promise<{ count: number; totalAmount: number }> => {
-    const targets = clients.filter((c) => c.enabled);
-    if (targets.length === 0) return { count: 0, totalAmount: 0 };
+    const targets = clients.filter(
+      (c) => c.enabled && !isClientInvoiceGenerated(c, month, company.receiptLog)
+    );
+    if (targets.length === 0) {
+      showCenterPopup(
+        'All Invoices Generated',
+        `All active ${term.plural.toLowerCase()} already have an invoice generated for ${month}.`,
+        'info'
+      );
+      return { count: 0, totalAmount: 0 };
+    }
 
     const targetIds = new Set(targets.map((c) => c.id));
     const nowTimestamp = Date.now();
@@ -1625,10 +1650,46 @@ export default function App() {
     };
     setCompany(updatedCompany);
 
+    const updatedClients = clients.map((client) => {
+      if (!client.monthlyRecords) return client;
+      let changed = false;
+      const nextRecords = { ...client.monthlyRecords };
+      if (month) {
+        if (nextRecords[month] && nextRecords[month].invoiceGenerated) {
+          nextRecords[month] = {
+            ...nextRecords[month],
+            invoiceGenerated: false,
+            invoiceGeneratedAt: undefined,
+          };
+          changed = true;
+        }
+      } else {
+        for (const m of Object.keys(nextRecords)) {
+          if (nextRecords[m].invoiceGenerated) {
+            nextRecords[m] = {
+              ...nextRecords[m],
+              invoiceGenerated: false,
+              invoiceGeneratedAt: undefined,
+            };
+            changed = true;
+          }
+        }
+      }
+      return changed ? { ...client, monthlyRecords: nextRecords } : client;
+    });
+
+    setClients(updatedClients);
+
     const activeUser = firebaseUser || auth.currentUser;
     if (activeUser) {
       try {
-        await syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany);
+        const clientSyncPromises = updatedClients
+          .filter((c, idx) => c !== clients[idx])
+          .map((c) => syncClientToFirestore(activeUser.uid, c, false));
+        await Promise.all([
+          syncWorkspaceProfileToFirestore(activeUser.uid, updatedCompany),
+          ...clientSyncPromises,
+        ]);
       } catch (err) {
         console.error(err);
       }
