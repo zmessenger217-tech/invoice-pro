@@ -25,7 +25,7 @@ import { FinanceAndSettingsViews } from './components/FinanceAndSettingsViews';
 import { InvoiceLogView } from './components/InvoiceLogView';
 import { InvoicePreviewAndEditor } from './components/InvoicePreviewAndEditor';
 import { SchoolChargesAndPartnerListView } from './components/SchoolChargesAndPartnerListView';
-import { OfflineIndicator } from './components/PWAInstallModal';
+import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallModal';
 import {
   CATEGORY_MAP,
   getCurrentMonthLabel,
@@ -2540,6 +2540,11 @@ export default function App() {
               <option value="Other">Other ({term.singular})</option>
             </select>
 
+            <PWAInstallButton
+              company={company}
+              onUpdateCompany={handleUpdateCompany}
+              variant="topbar"
+            />
             <button
               type="button"
               onClick={() => setAuthScreenMode('company-setup')}

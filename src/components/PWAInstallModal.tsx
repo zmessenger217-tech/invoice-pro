@@ -37,7 +37,7 @@ function triggerDirectWebAppDownload(
 ): string {
   const appName = (company.name || 'InvoicePro').trim();
   const safeFileName = appName.replace(/[^a-zA-Z0-9_-]+/g, '_') || 'InvoicePro';
-  const filename = `${safeFileName}_App.html`;
+  const filename = `InvoicePro_App.html`;
   const appUrl = window.location.origin + window.location.pathname;
   const resolvedLogo = activeLogo.startsWith('data:')
     ? activeLogo
@@ -155,18 +155,8 @@ export const PWAInstallButton: React.FC<PWAInstallWidgetProps> = ({
   );
   const [downloadedNotice, setDownloadedNotice] = useState(false);
 
-  const handleDirectDownloadClick = async () => {
-    // 1. If native browser PWA install prompt is available, trigger it immediately
-    if (isInstallable) {
-      const accepted = await install();
-      if (accepted) {
-        setDownloadedNotice(true);
-        setTimeout(() => setDownloadedNotice(false), 4000);
-        return;
-      }
-    }
-
-    // 2. Directly download the standalone WebApp with the displayed logo immediately
+  const handleDirectDownloadClick = () => {
+    // Immediately download the standalone WebApp file on click
     triggerDirectWebAppDownload(company, activeLogo);
     setDownloadedNotice(true);
     setTimeout(() => setDownloadedNotice(false), 4000);
