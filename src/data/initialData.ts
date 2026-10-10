@@ -285,34 +285,41 @@ export function getOrComputeMonthlyRecord(
     };
   }
 
-  // Pre-fill from the default charges and WhatsApp rate/messages entered when adding the school
+  // Pre-fill charges for new month with carry-forward rules:
+  // "Per month whatsapp charges will carry on for next month but per messages will not carry out for next month"
   const softwareCharges = client.softwareEnabled
     ? Number(client.softwareCharges) || 0
     : 0;
-  const whatsappRate = client.whatsappEnabled
-    ? Number(client.whatsappRate) || 0
-    : 0;
-  const whatsappMessages = client.whatsappEnabled
-    ? Number(client.whatsappMessages) || 0
-    : 0;
-  const computedClientPerMsg = Math.round(whatsappRate * whatsappMessages);
-  const savedClientWhatsapp = client.whatsappEnabled
-    ? Number(client.whatsappCharges) || 0
-    : 0;
-  const billingType =
-    client.whatsappBillingType ||
-    (savedClientWhatsapp > 0 && computedClientPerMsg === 0
-      ? 'per_month'
-      : 'per_message');
+
+  let initialBillingType: 'per_month' | 'per_message' = client.whatsappBillingType || 'per_message';
+  let initialWhatsappRate = client.whatsappEnabled ? Number(client.whatsappRate) || 0 : 0;
+  let initialWhatsappMessages = client.whatsappEnabled ? Number(client.whatsappMessages) || 0 : 0;
+  let initialWhatsappCharges = client.whatsappEnabled ? Number(client.whatsappCharges) || 0 : 0;
+
+  if (prevRecord) {
+    if (prevRecord.whatsappBillingType === 'per_month') {
+      initialBillingType = 'per_month';
+      initialWhatsappCharges = Number(prevRecord.whatsappCharges) || Number(client.whatsappCharges) || 0;
+      initialWhatsappRate = 0;
+      initialWhatsappMessages = 0;
+    } else {
+      // Per message does NOT carry over to next month
+      initialBillingType = 'per_message';
+      initialWhatsappRate = Number(client.whatsappRate) || 0;
+      initialWhatsappMessages = 0; // Per messages will not carry out for next month
+      initialWhatsappCharges = 0;
+    }
+  }
+
+  const computedClientPerMsg = Math.round(initialWhatsappRate * initialWhatsappMessages);
+  const billingType = initialBillingType;
   const whatsappCharges = client.whatsappEnabled
     ? billingType === 'per_month'
-      ? savedClientWhatsapp > 0
-        ? savedClientWhatsapp
-        : computedClientPerMsg
-      : computedClientPerMsg > 0
-      ? computedClientPerMsg
-      : savedClientWhatsapp
+      ? initialWhatsappCharges
+      : computedClientPerMsg
     : 0;
+  const whatsappRate = initialWhatsappRate;
+  const whatsappMessages = initialWhatsappMessages;
   const chatbotCharges = client.chatbotEnabled
     ? Number(client.chatbotCharges) || 0
     : 0;
