@@ -1387,6 +1387,38 @@ export const InvoicePreviewAndEditor: React.FC<
                       {formatCurrency(remainingDues, currency)}
                     </span>
                   </div>
+
+                  {invoiceDoc.payments && invoiceDoc.payments.length > 0 && (
+                    <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                        Payment Record ({invoiceDoc.payments.length})
+                      </div>
+                      <div className="space-y-1.5">
+                        {invoiceDoc.payments.map((tx, idx) => (
+                          <div
+                            key={tx.id || idx}
+                            className="bg-white border border-emerald-200/80 rounded-lg px-2.5 py-1.5 text-[10.5px] flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-800 truncate">
+                                #{idx + 1} • {tx.day ? `${tx.day}, ` : ''}
+                                {tx.date}
+                                {tx.time ? ` at ${tx.time}` : ''}
+                              </div>
+                              <div className="text-[9.5px] text-slate-500 truncate">
+                                Month: {tx.billingMonth || invoiceDoc.billingMonth} •{' '}
+                                {tx.method}
+                                {tx.bankName ? ` (${tx.bankName})` : ''}
+                              </div>
+                            </div>
+                            <span className="font-mono font-bold text-emerald-700 shrink-0 tabular-nums">
+                              {formatCurrency(tx.amount, currency)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

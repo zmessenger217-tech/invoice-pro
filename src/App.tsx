@@ -28,6 +28,7 @@ import { SchoolChargesAndPartnerListView } from './components/SchoolChargesAndPa
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallModal';
 import {
   CATEGORY_MAP,
+  createPaymentTimestamp,
   getCurrentMonthLabel,
   getDueDateForMonth,
   getIssueDateForMonth,
@@ -216,6 +217,7 @@ function buildEditableInvoiceFromClient(
     qrCodes: company.qrCodes,
     theme,
     status: rec.status,
+    payments: rec.payments || [],
   };
 }
 
@@ -1082,13 +1084,16 @@ export default function App() {
         ? 'Partially Paid'
         : 'Unpaid';
 
+    const ts = createPaymentTimestamp(month);
     const newPaymentTx: PaymentTransaction = {
       id: `pay-${Date.now()}`,
-      date: `16 ${month}`,
+      date: ts.date,
+      time: ts.time,
+      day: ts.day,
       amount: Math.max(0, amountPaidNow),
       method,
       note: note.trim() || undefined,
-      month,
+      billingMonth: month,
     };
 
     const updatedClient: ClientEntity = {
@@ -1853,6 +1858,19 @@ export default function App() {
     const payoutAmount =
       schoolsCut > 0 ? schoolsCut : target.monthlyPayment;
 
+    const ts = createPaymentTimestamp(month);
+    const existingPayments = target.paidMonths[month]?.payments || [];
+    const newTx: PaymentTransaction = {
+      id: `part-pay-${Date.now()}`,
+      date: ts.date,
+      time: ts.time,
+      day: ts.day,
+      amount: payoutAmount,
+      method: 'Bank Transfer',
+      note: 'Full Partner Payout',
+      billingMonth: month,
+    };
+
     const updatedPartner: PartnerItem = {
       ...target,
       paidMonths: {
@@ -1860,8 +1878,11 @@ export default function App() {
         [month]: {
           paid: nextPaid,
           amountPaid: nextPaid ? payoutAmount : 0,
-          paidDate: nextPaid ? `15 ${month}` : undefined,
+          paidDate: nextPaid ? ts.date : undefined,
+          paidTime: nextPaid ? ts.time : undefined,
+          paidDay: nextPaid ? ts.day : undefined,
           expenseId: nextPaid ? autoExpenseId : undefined,
+          payments: nextPaid ? [newTx, ...existingPayments] : [],
         },
       },
     };
@@ -1874,10 +1895,10 @@ export default function App() {
     if (nextPaid && payoutAmount > 0) {
       const partnerExpense: ExpenseItem = {
         id: autoExpenseId,
-        description: `Partner Payout — ${target.name}`,
+        description: `Partner Payout — ${target.name} (${ts.day}, ${ts.date} at ${ts.time})`,
         amount: payoutAmount,
         category: 'Partner Payout',
-        date: `15 ${month}`,
+        date: `${ts.date} (${ts.day}, ${ts.time})`,
         month,
         partnerId: target.id,
         partnerName: target.name,
@@ -1888,7 +1909,7 @@ export default function App() {
       ]);
       showCenterPopup(
         'Partner Paid',
-        `Payment for ${target.name} has been recorded.`,
+        `Payment for ${target.name} has been recorded (${ts.day}, ${ts.date} at ${ts.time}).`,
         'success'
       );
       if (activeUser) {
@@ -1945,12 +1966,16 @@ export default function App() {
   const handleUpdatePartnerPayment = async (
     partnerId: string,
     month: string,
-    amountPaid: number
+    amountPaidInput: number,
+    options?: {
+      mode?: 'add' | 'set';
+      method?: PaymentTransaction['method'];
+      note?: string;
+    }
   ) => {
     const target = partners.find((p) => p.id === partnerId);
     if (!target) return;
 
-    const cleanAmountPaid = Math.max(0, Number(amountPaid) || 0);
     const isAbdulSattar =
       target.id === 'part-abdul-sattar' ||
       target.name.trim().toUpperCase().includes('ABDUL SATTAR') ||
@@ -1985,12 +2010,52 @@ export default function App() {
       .reduce((sum, val) => sum + val, 0);
     const finalPayout = schoolsCut > 0 ? schoolsCut : target.monthlyPayment;
 
+    const existingMonthRec = target.paidMonths[month];
+    const existingPaid =
+      existingMonthRec?.amountPaid !== undefined
+        ? Number(existingMonthRec.amountPaid)
+        : existingMonthRec?.paid
+        ? finalPayout
+        : 0;
+    const existingPayments = existingMonthRec?.payments || [];
+
+    const mode = options?.mode || (amountPaidInput === 0 ? 'set' : 'add');
+    const cleanInput = Math.max(0, Number(amountPaidInput) || 0);
+    const cleanAmountPaid =
+      mode === 'add' ? existingPaid + cleanInput : cleanInput;
+    const addedInstallment =
+      mode === 'add'
+        ? cleanInput
+        : Math.max(0, cleanAmountPaid - existingPaid);
+
     const isFullyPaid =
       finalPayout > 0 ? cleanAmountPaid >= finalPayout : cleanAmountPaid > 0;
     const autoExpenseId = `exp-partner-${partnerId}-${month.replace(
       /\s+/g,
       '-'
     )}`;
+
+    const ts = createPaymentTimestamp(month);
+    const newPartnerTx: PaymentTransaction | null =
+      addedInstallment > 0
+        ? {
+            id: `part-pay-${Date.now()}`,
+            date: ts.date,
+            time: ts.time,
+            day: ts.day,
+            amount: addedInstallment,
+            method: options?.method || 'Bank Transfer',
+            note: options?.note?.trim() || undefined,
+            billingMonth: month,
+          }
+        : null;
+
+    const updatedPayments =
+      cleanAmountPaid === 0
+        ? []
+        : newPartnerTx
+        ? [newPartnerTx, ...existingPayments]
+        : existingPayments;
 
     const updatedPartner: PartnerItem = {
       ...target,
@@ -1999,8 +2064,11 @@ export default function App() {
         [month]: {
           paid: isFullyPaid,
           amountPaid: cleanAmountPaid,
-          paidDate: cleanAmountPaid > 0 ? `15 ${month}` : undefined,
+          paidDate: cleanAmountPaid > 0 ? ts.date : undefined,
+          paidTime: cleanAmountPaid > 0 ? ts.time : undefined,
+          paidDay: cleanAmountPaid > 0 ? ts.day : undefined,
           expenseId: cleanAmountPaid > 0 ? autoExpenseId : undefined,
+          payments: updatedPayments,
         },
       },
     };
@@ -2013,10 +2081,10 @@ export default function App() {
     if (cleanAmountPaid > 0) {
       const partnerExpense: ExpenseItem = {
         id: autoExpenseId,
-        description: `Partner Payout (${isFullyPaid ? 'Full' : 'Partial'}) — ${target.name}`,
+        description: `Partner Payout (${isFullyPaid ? 'Full' : 'Partial'}) — ${target.name} (${ts.day}, ${ts.date} at ${ts.time})`,
         amount: cleanAmountPaid,
         category: 'Partner Payout',
-        date: `15 ${month}`,
+        date: `${ts.date} (${ts.day}, ${ts.time})`,
         month,
         partnerId: target.id,
         partnerName: target.name,
@@ -2027,10 +2095,10 @@ export default function App() {
       ]);
       const remainingPartnerDues = Math.max(0, finalPayout - cleanAmountPaid);
       showCenterPopup(
-        isFullyPaid ? 'Partner Paid in Full' : 'Partial Payment Saved',
+        isFullyPaid ? 'Partner Paid in Full' : 'Partial Payment Added',
         isFullyPaid
-          ? `Full payment of ${company.currency || 'Rs.'} ${cleanAmountPaid.toLocaleString()} recorded for ${target.name}. Remaining Dues: ${company.currency || 'Rs.'} 0.`
-          : `Partial payment of ${company.currency || 'Rs.'} ${cleanAmountPaid.toLocaleString()} recorded for ${target.name}. Remaining Partner Dues: ${company.currency || 'Rs.'} ${remainingPartnerDues.toLocaleString()}.`,
+          ? `Added ${company.currency || 'Rs.'} ${addedInstallment.toLocaleString()} (${ts.day}, ${ts.date} at ${ts.time}). Total Paid to ${target.name}: ${company.currency || 'Rs.'} ${cleanAmountPaid.toLocaleString()}. Remaining Dues: ${company.currency || 'Rs.'} 0.`
+          : `Added ${company.currency || 'Rs.'} ${addedInstallment.toLocaleString()} (${ts.day}, ${ts.date} at ${ts.time}). Total Paid to ${target.name}: ${company.currency || 'Rs.'} ${cleanAmountPaid.toLocaleString()}. Remaining Partner Dues: ${company.currency || 'Rs.'} ${remainingPartnerDues.toLocaleString()}.`,
         'success'
       );
       if (activeUser) {

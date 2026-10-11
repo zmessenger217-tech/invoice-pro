@@ -37,6 +37,7 @@ import {
   InvoiceTheme,
   PartnerItem,
   PaymentQrCodeItem,
+  PaymentTransaction,
   SoftwareCategory,
 } from '../types';
 import {
@@ -67,7 +68,12 @@ interface FinanceAndSettingsViewsProps {
   onUpdatePartnerPayment?: (
     partnerId: string,
     month: string,
-    amountPaid: number
+    amountPaidInput: number,
+    options?: {
+      mode?: 'add' | 'set';
+      method?: PaymentTransaction['method'];
+      note?: string;
+    }
   ) => void;
   onDeletePartner: (partnerId: string) => void;
   onToggleClientEnabled: (clientId: string) => void;
@@ -145,6 +151,9 @@ export const FinanceAndSettingsViews: React.FC<
     currentPaid: number;
   } | null>(null);
   const [partnerPaymentInput, setPartnerPaymentInput] = useState<string>('');
+  const [partnerPaymentMethod, setPartnerPaymentMethod] =
+    useState<PaymentTransaction['method']>('Bank Transfer');
+  const [partnerPaymentNote, setPartnerPaymentNote] = useState<string>('');
 
   // 11. Finance Report Filter State
   const [reportScope, setReportScope] = useState<
@@ -318,6 +327,38 @@ export const FinanceAndSettingsViews: React.FC<
     }
     return sum;
   }, 0);
+
+  const totalAmountToBeCollected = clients
+    .filter((c) => c.enabled)
+    .reduce(
+      (sum, c) => sum + getOrComputeMonthlyRecord(c, selectedMonth).totalAmount,
+      0
+    );
+
+  const totalAllPartnersCut =
+    partners.length > 0
+      ? partners.reduce(
+          (sum, p) => sum + computePartnerPayoutForMonth(p, selectedMonth),
+          0
+        )
+      : clients
+          .filter((c) => c.enabled)
+          .reduce((sum, c) => {
+            const r = getOrComputeMonthlyRecord(c, selectedMonth);
+            const sw = Number(
+              r.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+            );
+            const wa = Number(
+              r.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+            );
+            const cb = Number(
+              r.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+            );
+            const tot = Number(
+              r.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
+            );
+            return sum + (tot > 0 ? tot : sw + wa + cb);
+          }, 0);
 
   // 9. EXPENSES VIEW (Matches Screen 9)
   if (activeTab === 'expenses') {
@@ -536,15 +577,27 @@ export const FinanceAndSettingsViews: React.FC<
             <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-wrap items-center justify-between gap-4">
               <div>
                 <div className="text-xs text-slate-500">Monthly Revenue</div>
-                <div className="text-lg font-bold text-slate-900 font-mono tabular-nums">
-                  {formatCurrency(monthlyRevenue, currency)}
+                <div className="text-lg font-bold text-emerald-600 font-mono tabular-nums">
+                  {formatCurrency(monthlyRevenue, currency)}{' '}
+                  <span className="text-xs font-semibold text-slate-400">
+                    / {formatCurrency(totalAmountToBeCollected, currency)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  Out of {formatCurrency(totalAmountToBeCollected, currency)} total to be collected
                 </div>
               </div>
               <div className="text-lg font-bold text-slate-300">−</div>
               <div>
-                <div className="text-xs text-slate-500">Expenses</div>
-                <div className="text-lg font-bold text-slate-900 font-mono tabular-nums">
-                  {formatCurrency(monthlyExpenses, currency)}
+                <div className="text-xs text-slate-500">Monthly Expenses</div>
+                <div className="text-lg font-bold text-rose-600 font-mono tabular-nums">
+                  {formatCurrency(monthlyExpenses, currency)}{' '}
+                  <span className="text-xs font-semibold text-slate-400">
+                    / {formatCurrency(totalAllPartnersCut, currency)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  Out of {formatCurrency(totalAllPartnersCut, currency)} total partner payment cut
                 </div>
               </div>
               <div className="text-lg font-bold text-slate-300">=</div>
@@ -631,6 +684,7 @@ export const FinanceAndSettingsViews: React.FC<
             schoolPaid: rec.amountPaid,
             schoolRemaining: rec.remainingDues,
             schoolStatus: rec.status,
+            schoolPayments: rec.payments || [],
             partnerNote: rec.partnerNote || c.partnerNote,
           };
         })
@@ -681,10 +735,6 @@ export const FinanceAndSettingsViews: React.FC<
     );
     const totalPartnerChatbotAll = allPartnerLinkedRecords.reduce(
       (sum, x) => sum + x.chatbotPay,
-      0
-    );
-    const totalAllPartnersCut = partners.reduce(
-      (sum, p) => sum + computePartnerPayoutForMonth(p, selectedMonth),
       0
     );
     const totalAllPartnersDues = Math.max(
@@ -760,10 +810,13 @@ export const FinanceAndSettingsViews: React.FC<
               Total {term.plural} Revenue ({selectedMonth})
             </div>
             <div className="text-xl font-bold text-slate-900 font-mono tabular-nums mt-1">
-              {formatCurrency(monthlyRevenue, currency)}
+              {formatCurrency(monthlyRevenue, currency)}{' '}
+              <span className="text-xs font-semibold text-slate-400">
+                / {formatCurrency(totalAmountToBeCollected, currency)}
+              </span>
             </div>
             <div className="text-[11px] text-slate-400 mt-0.5">
-              Paid: {formatCurrency(totalCollected, currency)}
+              Out of {formatCurrency(totalAmountToBeCollected, currency)} total to be collected
             </div>
           </div>
 
@@ -1180,6 +1233,10 @@ export const FinanceAndSettingsViews: React.FC<
                         <button
                           type="button"
                           onClick={() => {
+                            const remainingToPay = Math.max(
+                              0,
+                              finalPayout - partnerAmountPaid
+                            );
                             setPaymentPartnerModal({
                               partner: p,
                               totalPayout: finalPayout,
@@ -1187,16 +1244,21 @@ export const FinanceAndSettingsViews: React.FC<
                             });
                             setPartnerPaymentInput(
                               String(
-                                partnerAmountPaid > 0
-                                  ? partnerAmountPaid
+                                remainingToPay > 0
+                                  ? remainingToPay
                                   : finalPayout
                               )
                             );
+                            setPartnerPaymentNote('');
                           }}
                           className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs"
                         >
                           <CreditCard className="w-3.5 h-3.5" />
-                          <span>Make Payment</span>
+                          <span>
+                            {partnerAmountPaid > 0 && partnerRemainingDues > 0
+                              ? 'Add Next Payment'
+                              : 'Make Payment'}
+                          </span>
                         </button>
 
                         {(isFullyPaid || isPartiallyPaid) && (
@@ -1204,7 +1266,9 @@ export const FinanceAndSettingsViews: React.FC<
                             type="button"
                             onClick={() => {
                               if (onUpdatePartnerPayment) {
-                                onUpdatePartnerPayment(p.id, selectedMonth, 0);
+                                onUpdatePartnerPayment(p.id, selectedMonth, 0, {
+                                  mode: 'set',
+                                });
                               } else {
                                 onTogglePartnerPaid(p.id, selectedMonth);
                               }
@@ -1265,6 +1329,67 @@ export const FinanceAndSettingsViews: React.FC<
                           >
                             {formatCurrency(partnerRemainingDues, currency)}
                           </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Partner Payment History Log (Installments with Time, Date, Day & Month) */}
+                    {((monthRec?.payments && monthRec.payments.length > 0) ||
+                      (partnerAmountPaid > 0 && monthRec?.paidDate)) && (
+                      <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 space-y-2 text-xs">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900">
+                            Partner Payment Record — {p.name} ({selectedMonth})
+                          </span>
+                          <span className="text-[11px] font-mono font-semibold text-emerald-800">
+                            Total Paid: {formatCurrency(partnerAmountPaid, currency)} · Remaining Dues: {formatCurrency(partnerRemainingDues, currency)}
+                          </span>
+                        </div>
+                        <div className="divide-y divide-emerald-200/60 bg-white rounded-lg border border-emerald-100 overflow-hidden">
+                          {(monthRec?.payments && monthRec.payments.length > 0
+                            ? monthRec.payments
+                            : [
+                                {
+                                  id: 'legacy-pay',
+                                  amount: partnerAmountPaid,
+                                  date: monthRec?.paidDate || `15 ${selectedMonth}`,
+                                  time: monthRec?.paidTime || '—',
+                                  day: monthRec?.paidDay || '—',
+                                  billingMonth: selectedMonth,
+                                  method: 'Bank Transfer' as const,
+                                },
+                              ]
+                          ).map((tx, idx, arr) => (
+                            <div
+                              key={tx.id || idx}
+                              className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px]"
+                            >
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono font-bold text-[10px]">
+                                  #{arr.length - idx}
+                                </span>
+                                <span className="font-semibold text-slate-800">
+                                  {tx.day ? `${tx.day}, ` : ''}
+                                  {tx.date}
+                                </span>
+                                <span className="text-slate-500">
+                                  · Month: <strong>{tx.billingMonth || selectedMonth}</strong>
+                                </span>
+                                {tx.time && (
+                                  <span className="text-indigo-700 font-mono font-medium">
+                                    · Time: {tx.time}
+                                  </span>
+                                )}
+                                <span className="text-slate-500">
+                                  · {tx.method}
+                                  {tx.note ? ` (${tx.note})` : ''}
+                                </span>
+                              </div>
+                              <span className="font-mono font-bold text-emerald-700">
+                                +{formatCurrency(tx.amount, currency)}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -1375,6 +1500,33 @@ export const FinanceAndSettingsViews: React.FC<
                                 </div>
                               </div>
 
+                              {/* School Payment Status & Timestamps */}
+                              {item.schoolPayments && item.schoolPayments.length > 0 && (
+                                <div className="bg-emerald-50/50 border border-emerald-100 rounded-lg p-2 text-[10px] space-y-1">
+                                  <div className="font-semibold text-emerald-900 flex items-center justify-between">
+                                    <span>{term.singular} Payment History:</span>
+                                    <span className="font-mono">
+                                      Paid: {formatCurrency(item.schoolPaid, currency)}
+                                    </span>
+                                  </div>
+                                  {item.schoolPayments.map((sp, sIdx) => (
+                                    <div
+                                      key={sp.id || sIdx}
+                                      className="flex items-center justify-between gap-2 text-slate-600 font-mono"
+                                    >
+                                      <span>
+                                        {sp.day ? `${sp.day}, ` : ''}
+                                        {sp.date} ({sp.billingMonth || selectedMonth})
+                                        {sp.time ? ` · ${sp.time}` : ''}
+                                      </span>
+                                      <span className="font-bold text-emerald-700">
+                                        +{formatCurrency(sp.amount, currency)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
                               <div className="text-[11px] text-slate-600 flex items-center justify-between gap-2 pt-0.5">
                                 <span>
                                   Total Cut to {p.name}:{' '}
@@ -1407,7 +1559,8 @@ export const FinanceAndSettingsViews: React.FC<
             <div>
               <span className="text-slate-500">Monthly Revenue: </span>
               <span className="font-mono font-bold text-slate-900">
-                {formatCurrency(monthlyRevenue, currency)}
+                {formatCurrency(monthlyRevenue, currency)} /{' '}
+                {formatCurrency(totalAmountToBeCollected, currency)}
               </span>
             </div>
             <div>
@@ -1421,7 +1574,8 @@ export const FinanceAndSettingsViews: React.FC<
                 Partner Payments (Paid in {selectedMonth}):{' '}
               </span>
               <span className="font-mono font-bold text-indigo-600">
-                {formatCurrency(partnerPayoutsTotal, currency)}
+                {formatCurrency(partnerPayoutsTotal, currency)} /{' '}
+                {formatCurrency(totalAllPartnersCut, currency)}
               </span>
             </div>
             <div>
@@ -1462,21 +1616,38 @@ export const FinanceAndSettingsViews: React.FC<
               </div>
 
               {(() => {
+                const livePartner =
+                  partners.find(
+                    (p) => p.id === paymentPartnerModal.partner.id
+                  ) || paymentPartnerModal.partner;
+                const monthRec = livePartner.paidMonths[selectedMonth];
+                const alreadyPaid =
+                  monthRec?.amountPaid !== undefined
+                    ? Number(monthRec.amountPaid)
+                    : monthRec?.paid
+                    ? paymentPartnerModal.totalPayout
+                    : paymentPartnerModal.currentPaid;
+                const remainingBeforePay = Math.max(
+                  0,
+                  paymentPartnerModal.totalPayout - alreadyPaid
+                );
                 const enteredAmount = Math.max(
                   0,
                   Number(partnerPaymentInput) || 0
                 );
+                const newTotalPaid = alreadyPaid + enteredAmount;
                 const liveDues = Math.max(
                   0,
-                  paymentPartnerModal.totalPayout - enteredAmount
+                  paymentPartnerModal.totalPayout - newTotalPaid
                 );
                 const liveStatus =
-                  enteredAmount <= 0
+                  newTotalPaid <= 0
                     ? 'Unpaid'
-                    : enteredAmount >= paymentPartnerModal.totalPayout &&
+                    : newTotalPaid >= paymentPartnerModal.totalPayout &&
                       paymentPartnerModal.totalPayout > 0
                     ? 'Paid in Full'
                     : 'Partially Paid';
+                const existingPayments = monthRec?.payments || [];
 
                 return (
                   <form
@@ -1486,7 +1657,12 @@ export const FinanceAndSettingsViews: React.FC<
                         onUpdatePartnerPayment(
                           paymentPartnerModal.partner.id,
                           selectedMonth,
-                          enteredAmount
+                          enteredAmount,
+                          {
+                            mode: 'add',
+                            method: partnerPaymentMethod,
+                            note: partnerPaymentNote,
+                          }
                         );
                       } else {
                         onTogglePartnerPaid(
@@ -1498,12 +1674,12 @@ export const FinanceAndSettingsViews: React.FC<
                     }}
                     className="space-y-4 text-xs"
                   >
-                    <div className="grid grid-cols-3 gap-2.5">
-                      <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-200">
                         <div className="text-[10px] text-indigo-700 font-medium">
                           Total Partner Cut
                         </div>
-                        <div className="text-sm font-bold text-indigo-900 font-mono mt-1">
+                        <div className="text-xs font-bold text-indigo-900 font-mono mt-1">
                           {formatCurrency(
                             paymentPartnerModal.totalPayout,
                             currency
@@ -1511,29 +1687,64 @@ export const FinanceAndSettingsViews: React.FC<
                         </div>
                       </div>
 
-                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                        <div className="text-[10px] text-emerald-700 font-medium">
-                          Amount Paid
+                      <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200">
+                        <div className="text-[10px] text-slate-600 font-medium">
+                          Already Paid
                         </div>
-                        <div className="text-sm font-bold text-emerald-800 font-mono mt-1">
-                          {formatCurrency(enteredAmount, currency)}
+                        <div className="text-xs font-bold text-slate-900 font-mono mt-1">
+                          {formatCurrency(alreadyPaid, currency)}
                         </div>
                       </div>
 
-                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200">
+                      <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                        <div className="text-[10px] text-emerald-700 font-medium">
+                          New Total Paid
+                        </div>
+                        <div className="text-xs font-bold text-emerald-800 font-mono mt-1">
+                          {formatCurrency(newTotalPaid, currency)}
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200">
                         <div className="text-[10px] text-rose-700 font-medium">
                           Remaining Dues
                         </div>
-                        <div className="text-sm font-bold text-rose-700 font-mono mt-1">
+                        <div className="text-xs font-bold text-rose-700 font-mono mt-1">
                           {formatCurrency(liveDues, currency)}
                         </div>
                       </div>
                     </div>
 
+                    {/* Previous Installments Paid */}
+                    {existingPayments.length > 0 && (
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                          Previous Payments in {selectedMonth} ({existingPayments.length})
+                        </div>
+                        <div className="max-h-28 overflow-y-auto divide-y divide-slate-200/60">
+                          {existingPayments.map((tx, i) => (
+                            <div
+                              key={tx.id || i}
+                              className="py-1 flex items-center justify-between gap-2 text-[11px]"
+                            >
+                              <span className="text-slate-600 font-mono">
+                                {tx.day ? `${tx.day}, ` : ''}
+                                {tx.date}
+                                {tx.time ? ` · ${tx.time}` : ''} ({tx.method})
+                              </span>
+                              <span className="font-mono font-bold text-emerald-700">
+                                +{formatCurrency(tx.amount, currency)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
                         <label className="font-semibold text-slate-700">
-                          Enter Payment Amount ({currency})
+                          Add Payment Amount Now ({currency})
                         </label>
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
@@ -1554,12 +1765,48 @@ export const FinanceAndSettingsViews: React.FC<
                         required
                         value={partnerPaymentInput}
                         onChange={(e) => setPartnerPaymentInput(e.target.value)}
-                        placeholder="Enter amount paid to partner"
+                        placeholder="Enter amount paying now to partner"
                         className="w-full px-3.5 py-2.5 text-base font-mono font-bold rounded-xl border border-slate-300 focus:border-emerald-600 focus:outline-none"
                       />
                       <p className="text-[11px] text-slate-500 mt-1.5">
-                        You can pay partially or in full. Any unpaid balance ({formatCurrency(liveDues, currency)}) will automatically show as Partner Dues on the interface and partner PDF invoice. Setting to 0 marks as Unpaid and removes from monthly expenses.
+                        This payment (+{formatCurrency(enteredAmount, currency)}) will be added to Already Paid ({formatCurrency(alreadyPaid, currency)}) = <strong>{formatCurrency(newTotalPaid, currency)}</strong> and deducted from Partner Dues (Remaining: <strong>{formatCurrency(liveDues, currency)}</strong>). Exact time, date, day, and month are recorded automatically.
                       </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                          Payment Method
+                        </label>
+                        <select
+                          value={partnerPaymentMethod}
+                          onChange={(e) =>
+                            setPartnerPaymentMethod(
+                              e.target.value as PaymentTransaction['method']
+                            )
+                          }
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white"
+                        >
+                          <option value="Bank Transfer">Bank Transfer</option>
+                          <option value="Cash">Cash</option>
+                          <option value="Online / QR">Online / QR</option>
+                          <option value="Cheque">Cheque</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                          Note / Reference (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={partnerPaymentNote}
+                          onChange={(e) =>
+                            setPartnerPaymentNote(e.target.value)
+                          }
+                          placeholder="e.g. Installment #2, Bank Ref"
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200"
+                        />
+                      </div>
                     </div>
 
                     {/* Quick Amount Buttons */}
@@ -1568,35 +1815,61 @@ export const FinanceAndSettingsViews: React.FC<
                         type="button"
                         onClick={() =>
                           setPartnerPaymentInput(
-                            String(paymentPartnerModal.totalPayout)
+                            String(
+                              remainingBeforePay > 0
+                                ? remainingBeforePay
+                                : paymentPartnerModal.totalPayout
+                            )
                           )
                         }
                         className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold text-[11px] transition-colors"
                       >
-                        Full Payout ({formatCurrency(paymentPartnerModal.totalPayout, currency)})
+                        Pay Remaining Dues (
+                        {formatCurrency(
+                          remainingBeforePay > 0
+                            ? remainingBeforePay
+                            : paymentPartnerModal.totalPayout,
+                          currency
+                        )}
+                        )
                       </button>
-                      {paymentPartnerModal.totalPayout > 0 && (
+                      {remainingBeforePay > 0 && (
                         <button
                           type="button"
                           onClick={() =>
                             setPartnerPaymentInput(
-                              String(
-                                Math.round(paymentPartnerModal.totalPayout / 2)
-                              )
+                              String(Math.round(remainingBeforePay / 2))
                             )
                           }
                           className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-semibold text-[11px] transition-colors"
                         >
-                          50% Partial ({formatCurrency(Math.round(paymentPartnerModal.totalPayout / 2), currency)})
+                          50% of Remaining (
+                          {formatCurrency(
+                            Math.round(remainingBeforePay / 2),
+                            currency
+                          )}
+                          )
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => setPartnerPaymentInput('0')}
-                        className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-[11px] transition-colors"
-                      >
-                        Unpaid (0)
-                      </button>
+                      {alreadyPaid > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onUpdatePartnerPayment) {
+                              onUpdatePartnerPayment(
+                                paymentPartnerModal.partner.id,
+                                selectedMonth,
+                                0,
+                                { mode: 'set' }
+                              );
+                            }
+                            setPaymentPartnerModal(null);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-[11px] transition-colors"
+                        >
+                          Reset All to Unpaid (0)
+                        </button>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
@@ -1611,7 +1884,7 @@ export const FinanceAndSettingsViews: React.FC<
                         type="submit"
                         className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-xs"
                       >
-                        Save Payment
+                        Add &amp; Save Payment
                       </button>
                     </div>
                   </form>
@@ -1646,6 +1919,10 @@ export const FinanceAndSettingsViews: React.FC<
                   <button
                     type="button"
                     onClick={() => {
+                      const remainingToPay = Math.max(
+                        0,
+                        modalTotalPayout - modalAmountPaid
+                      );
                       setPaymentPartnerModal({
                         partner: activeDetailPartner,
                         totalPayout: modalTotalPayout,
@@ -1653,16 +1930,21 @@ export const FinanceAndSettingsViews: React.FC<
                       });
                       setPartnerPaymentInput(
                         String(
-                          modalAmountPaid > 0
-                            ? modalAmountPaid
+                          remainingToPay > 0
+                            ? remainingToPay
                             : modalTotalPayout
                         )
                       );
+                      setPartnerPaymentNote('');
                     }}
                     className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
                   >
                     <CreditCard className="w-3.5 h-3.5" />
-                    <span>Make Payment</span>
+                    <span>
+                      {modalAmountPaid > 0 && modalPartnerDues > 0
+                        ? 'Add Next Payment'
+                        : 'Make Payment'}
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -1760,6 +2042,80 @@ export const FinanceAndSettingsViews: React.FC<
                   </div>
                 </div>
               </div>
+
+              {/* Partner Payment History Table inside "See Details" Modal */}
+              {((modalMonthRec?.payments && modalMonthRec.payments.length > 0) ||
+                (modalAmountPaid > 0 && modalMonthRec?.paidDate)) && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 overflow-hidden">
+                  <div className="px-4 py-2.5 bg-emerald-100/60 border-b border-emerald-200 flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-950">
+                      Partner Payment History (Day, Date, Month &amp; Time)
+                    </span>
+                    <span className="text-xs font-mono font-bold text-emerald-800">
+                      Total Paid: {formatCurrency(modalAmountPaid, currency)}
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-emerald-200/70 text-[11px] font-semibold text-emerald-900 bg-white/60">
+                          <th className="py-2 px-3">#</th>
+                          <th className="py-2 px-3">Day</th>
+                          <th className="py-2 px-3">Date</th>
+                          <th className="py-2 px-3">Month</th>
+                          <th className="py-2 px-3">Time</th>
+                          <th className="py-2 px-3">Method / Note</th>
+                          <th className="py-2 px-3 text-right">Amount Paid</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-emerald-100 bg-white">
+                        {(modalMonthRec?.payments &&
+                        modalMonthRec.payments.length > 0
+                          ? modalMonthRec.payments
+                          : [
+                              {
+                                id: 'legacy-modal-pay',
+                                amount: modalAmountPaid,
+                                date:
+                                  modalMonthRec?.paidDate ||
+                                  `15 ${selectedMonth}`,
+                                time: modalMonthRec?.paidTime || '—',
+                                day: modalMonthRec?.paidDay || '—',
+                                billingMonth: selectedMonth,
+                                method: 'Bank Transfer' as const,
+                              },
+                            ]
+                        ).map((tx, idx, arr) => (
+                          <tr key={tx.id || idx}>
+                            <td className="py-2 px-3 font-mono text-slate-500">
+                              #{arr.length - idx}
+                            </td>
+                            <td className="py-2 px-3 font-medium text-slate-800">
+                              {tx.day || '—'}
+                            </td>
+                            <td className="py-2 px-3 font-mono text-slate-800">
+                              {tx.date}
+                            </td>
+                            <td className="py-2 px-3 text-slate-700">
+                              {tx.billingMonth || selectedMonth}
+                            </td>
+                            <td className="py-2 px-3 font-mono text-indigo-700 font-medium">
+                              {tx.time || '—'}
+                            </td>
+                            <td className="py-2 px-3 text-slate-600">
+                              {tx.method}
+                              {tx.note ? ` · ${tx.note}` : ''}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
+                              +{formatCurrency(tx.amount, currency)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Service Charges Breakdown by School */}
               <div className="space-y-4">
@@ -1908,6 +2264,34 @@ export const FinanceAndSettingsViews: React.FC<
                           <strong>Note:</strong> {item.partnerNote}
                         </div>
                       )}
+
+                      {item.schoolPayments && item.schoolPayments.length > 0 && (
+                        <div className="px-4 py-2.5 bg-emerald-50/60 border-t border-emerald-100 text-[11px] space-y-1">
+                          <div className="font-semibold text-emerald-900 flex items-center justify-between">
+                            <span>
+                              {term.singular} Payment History ({item.client.name}):
+                            </span>
+                            <span className="font-mono font-bold text-emerald-800">
+                              Paid: {formatCurrency(item.schoolPaid, currency)}
+                            </span>
+                          </div>
+                          {item.schoolPayments.map((sp, spIdx) => (
+                            <div
+                              key={sp.id || spIdx}
+                              className="flex flex-wrap items-center justify-between gap-2 text-slate-700 font-mono"
+                            >
+                              <span>
+                                {sp.day ? `${sp.day}, ` : ''}
+                                {sp.date} · Month: {sp.billingMonth || selectedMonth}
+                                {sp.time ? ` · Time: ${sp.time}` : ''} ({sp.method})
+                              </span>
+                              <span className="font-bold text-emerald-700">
+                                +{formatCurrency(sp.amount, currency)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -2039,17 +2423,29 @@ export const FinanceAndSettingsViews: React.FC<
             <div className="text-xs font-medium text-slate-500">
               Total Revenue
             </div>
-            <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledRevenue, currency)}
+            <div className="text-xl sm:text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
+              {formatCurrency(scaledRevenue, currency)}{' '}
+              <span className="text-sm font-semibold text-slate-400">
+                / {formatCurrency(totalAmountToBeCollected * scale, currency)}
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">
+              Out of {formatCurrency(totalAmountToBeCollected * scale, currency)} total to be collected
             </div>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <div className="text-xs font-medium text-slate-500">
-              Partner Payments
+              Partner Payments (Monthly Expenses)
             </div>
-            <div className="text-2xl font-bold text-blue-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledPartners, currency)}
+            <div className="text-xl sm:text-2xl font-bold text-blue-600 font-mono tabular-nums mt-1.5">
+              {formatCurrency(scaledPartners, currency)}{' '}
+              <span className="text-sm font-semibold text-slate-400">
+                / {formatCurrency(totalAllPartnersCut * scale, currency)}
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">
+              Out of {formatCurrency(totalAllPartnersCut * scale, currency)} total partner payment cut
             </div>
           </div>
 

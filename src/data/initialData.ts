@@ -202,6 +202,51 @@ export function formatCurrency(amount: number, currency = 'Rs.'): string {
   return `${currency} ${formatted}`;
 }
 
+export function createPaymentTimestamp(billingMonth: string): {
+  date: string;
+  time: string;
+  day: string;
+  month: string;
+} {
+  const now = new Date();
+  const date = now.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const time = now.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+  const day = now.toLocaleDateString('en-US', {
+    weekday: 'long',
+  });
+  return {
+    date,
+    time,
+    day,
+    month: billingMonth,
+  };
+}
+
+export function formatPaymentTimestamp(tx: {
+  date?: string;
+  time?: string;
+  day?: string;
+  billingMonth?: string;
+}): string {
+  const parts: string[] = [];
+  if (tx.day) parts.push(tx.day);
+  if (tx.date) parts.push(tx.date);
+  if (tx.billingMonth && (!tx.date || !tx.date.includes(tx.billingMonth))) {
+    parts.push(`(${tx.billingMonth})`);
+  }
+  if (tx.time) parts.push(`at ${tx.time}`);
+  return parts.join(', ');
+}
+
 export function getOrComputeMonthlyRecord(
   client: ClientEntity,
   month: string
@@ -291,22 +336,38 @@ export function getOrComputeMonthlyRecord(
     ? Number(client.softwareCharges) || 0
     : 0;
 
-  let initialBillingType: 'per_month' | 'per_message' = client.whatsappBillingType || 'per_message';
-  let initialWhatsappRate = client.whatsappEnabled ? Number(client.whatsappRate) || 0 : 0;
-  let initialWhatsappMessages = client.whatsappEnabled ? Number(client.whatsappMessages) || 0 : 0;
-  let initialWhatsappCharges = client.whatsappEnabled ? Number(client.whatsappCharges) || 0 : 0;
+  const hasAnySavedMonthRecord =
+    client.monthlyRecords && Object.keys(client.monthlyRecords).length > 0;
+  const resolvedBillingType: 'per_month' | 'per_message' =
+    prevRecord?.whatsappBillingType ||
+    client.whatsappBillingType ||
+    'per_message';
 
-  if (prevRecord) {
-    if (prevRecord.whatsappBillingType === 'per_month') {
+  let initialBillingType: 'per_month' | 'per_message' = resolvedBillingType;
+  let initialWhatsappRate = client.whatsappEnabled
+    ? Number(prevRecord?.whatsappRate ?? client.whatsappRate) || 0
+    : 0;
+  let initialWhatsappMessages = 0;
+  let initialWhatsappCharges = 0;
+
+  if (client.whatsappEnabled) {
+    if (resolvedBillingType === 'per_month') {
+      // Per-month WhatsApp charges carry on for next month
       initialBillingType = 'per_month';
-      initialWhatsappCharges = Number(prevRecord.whatsappCharges) || Number(client.whatsappCharges) || 0;
+      initialWhatsappCharges =
+        Number(prevRecord?.whatsappCharges) ||
+        Number(client.whatsappCharges) ||
+        0;
       initialWhatsappRate = 0;
       initialWhatsappMessages = 0;
     } else {
-      // Per message does NOT carry over to next month
+      // Per-message WhatsApp counts do NOT carry out for next month
       initialBillingType = 'per_message';
-      initialWhatsappRate = Number(client.whatsappRate) || 0;
-      initialWhatsappMessages = 0; // Per messages will not carry out for next month
+      initialWhatsappRate =
+        Number(prevRecord?.whatsappRate ?? client.whatsappRate) || 0;
+      initialWhatsappMessages = hasAnySavedMonthRecord
+        ? 0
+        : Number(client.whatsappMessages) || 0;
       initialWhatsappCharges = 0;
     }
   }

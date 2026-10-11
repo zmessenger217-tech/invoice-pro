@@ -86,11 +86,13 @@ export interface CompanyProfile {
 export interface PaymentTransaction {
   id: string;
   date: string;
+  time?: string;
+  day?: string;
   amount: number;
   method: 'Bank Transfer' | 'Cash' | 'Online / QR' | 'Cheque';
   bankName?: string;
   note?: string;
-  month: string;
+  billingMonth: string;
 }
 
 export type PaymentStatus = 'Paid' | 'Partially Paid' | 'Unpaid';
@@ -188,7 +190,10 @@ export interface PartnerItem {
       paid: boolean;
       amountPaid?: number;
       paidDate?: string;
+      paidTime?: string;
+      paidDay?: string;
       expenseId?: string;
+      payments?: PaymentTransaction[];
     }
   >;
 }
@@ -232,6 +237,7 @@ export interface InvoiceEditableDocument {
   qrCodes?: PaymentQrCodeItem[];
   theme: InvoiceTheme;
   status: PaymentStatus;
+  payments?: PaymentTransaction[];
 }
 
 export type ActiveNavTab =

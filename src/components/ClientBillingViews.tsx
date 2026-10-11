@@ -233,20 +233,20 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   }, [invGeneratorClientId, clients, selectedMonth]);
 
   const loadClientIntoForm = (c: ClientEntity) => {
-    const monthRec = c.monthlyRecords[selectedMonth];
+    const monthRec = getOrComputeMonthlyRecord(c, selectedMonth);
     const billingType =
-      monthRec?.whatsappBillingType || c.whatsappBillingType || 'per_message';
+      monthRec.whatsappBillingType || c.whatsappBillingType || 'per_message';
     setEditingClientId(c.id);
     setClientName(c.name);
     setClientAddress(c.address);
     setClientPhone(c.phone);
     setSoftwareEnabled(c.softwareEnabled);
-    setSoftwareCharges(String(c.softwareCharges));
+    setSoftwareCharges(String(monthRec.softwareCharges ?? c.softwareCharges));
     setWhatsappEnabled(c.whatsappEnabled);
     setWhatsappBillingType(billingType);
     if (billingType === 'per_month') {
       setWhatsappMonthlyCharges(
-        monthRec?.whatsappCharges !== undefined
+        monthRec.whatsappCharges !== undefined
           ? String(monthRec.whatsappCharges)
           : c.whatsappCharges !== undefined
           ? String(c.whatsappCharges)
@@ -256,15 +256,11 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       setWhatsappMessages('');
     } else {
       setWhatsappRate(
-        monthRec?.whatsappRate !== undefined
+        monthRec.whatsappRate !== undefined
           ? String(monthRec.whatsappRate)
           : String(c.whatsappRate)
       );
-      setWhatsappMessages(
-        monthRec?.whatsappMessages !== undefined
-          ? String(monthRec.whatsappMessages)
-          : String(c.whatsappMessages)
-      );
+      setWhatsappMessages(String(monthRec.whatsappMessages ?? 0));
       setWhatsappMonthlyCharges('');
     }
     setChatbotEnabled(c.chatbotEnabled);
@@ -509,6 +505,63 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     (acc, r) => acc + r.record.remainingDues,
     0
   );
+  const totalAmountToBeCollected = ledgerRows.reduce(
+    (acc, r) => acc + r.record.totalAmount,
+    0
+  );
+
+  const totalPartnerPaymentCut =
+    partners.length > 0
+      ? partners.reduce((sum, p) => {
+          const isAbdulSattar =
+            p.id === 'part-abdul-sattar' ||
+            p.name.trim().toUpperCase().includes('ABDUL SATTAR') ||
+            partners.length === 1;
+          const schoolsCut = ledgerRows
+            .map(({ client: c, record: r }) => {
+              const explicitPartnerId = r.partnerId || c.partnerId;
+              const isExplicitlyThis =
+                explicitPartnerId === p.id ||
+                (r.partnerName || c.partnerName || '').trim().toUpperCase() ===
+                  p.name.trim().toUpperCase();
+              const isExplicitlyOther =
+                Boolean(explicitPartnerId && explicitPartnerId !== p.id) &&
+                partners.some((other) => other.id === explicitPartnerId);
+              if (!isExplicitlyThis && !(isAbdulSattar && !isExplicitlyOther)) {
+                return 0;
+              }
+              const sw = Number(
+                r.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+              );
+              const wa = Number(
+                r.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+              );
+              const cb = Number(
+                r.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+              );
+              const tot = Number(
+                r.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
+              );
+              return tot > 0 ? tot : sw + wa + cb;
+            })
+            .reduce((s, val) => s + val, 0);
+          return sum + (schoolsCut > 0 ? schoolsCut : p.billingMonthlyPayment || 0);
+        }, 0)
+      : ledgerRows.reduce((sum, { client: c, record: r }) => {
+          const sw = Number(
+            r.partnerSoftwareCharges ?? c.partnerSoftwareCharges ?? 0
+          );
+          const wa = Number(
+            r.partnerWhatsappCharges ?? c.partnerWhatsappCharges ?? 0
+          );
+          const cb = Number(
+            r.partnerChatbotCharges ?? c.partnerChatbotCharges ?? 0
+          );
+          const tot = Number(
+            r.partnerTotalPayment ?? c.partnerTotalPayment ?? 0
+          );
+          return sum + (tot > 0 ? tot : sw + wa + cb);
+        }, 0);
 
   const periodMultiplier = cbPeriodFilter === 'Yearly' ? 12 : 1;
 
@@ -582,11 +635,17 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               <div className="text-xs font-medium text-slate-500">
                 Monthly Revenue
               </div>
-              <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
-                {formatCurrency(monthlyRevenue, currency)}
+              <div className="text-xl sm:text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
+                {formatCurrency(monthlyRevenue, currency)}{' '}
+                <span className="text-sm font-semibold text-slate-400">
+                  / {formatCurrency(totalAmountToBeCollected, currency)}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                Out of {formatCurrency(totalAmountToBeCollected, currency)} total to be collected
               </div>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
               <TrendingUp className="w-5 h-5" />
             </div>
           </div>
@@ -596,8 +655,14 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               <div className="text-xs font-medium text-slate-500">
                 Monthly Expenses
               </div>
-              <div className="text-2xl font-bold text-rose-600 font-mono tabular-nums mt-1.5">
-                {formatCurrency(monthlyExpenses, currency)}
+              <div className="text-xl sm:text-2xl font-bold text-rose-600 font-mono tabular-nums mt-1.5">
+                {formatCurrency(monthlyExpenses, currency)}{' '}
+                <span className="text-sm font-semibold text-slate-400">
+                  / {formatCurrency(totalPartnerPaymentCut, currency)}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                Out of {formatCurrency(totalPartnerPaymentCut, currency)} total partner payment cut
               </div>
               {monthlyExpenses > 0 && onResetMonthlyExpenses && (
                 <button
@@ -609,7 +674,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                 </button>
               )}
             </div>
-            <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
               <TrendingDown className="w-5 h-5" />
             </div>
           </div>
@@ -1369,10 +1434,16 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
 
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="text-xs font-medium text-slate-500">
-              Total Collected
+              Monthly Revenue (Collected)
             </div>
-            <div className="text-xl font-bold text-emerald-600 font-mono tabular-nums mt-1">
-              {formatCurrency(totalCollected * periodMultiplier, currency)}
+            <div className="text-lg sm:text-xl font-bold text-emerald-600 font-mono tabular-nums mt-1">
+              {formatCurrency(totalCollected * periodMultiplier, currency)}{' '}
+              <span className="text-xs font-semibold text-slate-400">
+                / {formatCurrency(totalAmountToBeCollected * periodMultiplier, currency)}
+              </span>
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">
+              Out of {formatCurrency(totalAmountToBeCollected * periodMultiplier, currency)} to be collected
             </div>
           </div>
 
@@ -1520,9 +1591,22 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                         )}
                       </td>
                       <td className="py-3.5 px-3 text-right font-mono text-emerald-700 tabular-nums border border-slate-200">
-                        {formatCurrency(
-                          record.amountPaid * periodMultiplier,
-                          currency
+                        <div>
+                          {formatCurrency(
+                            record.amountPaid * periodMultiplier,
+                            currency
+                          )}
+                        </div>
+                        {record.payments && record.payments.length > 0 && (
+                          <div className="text-[10px] font-sans text-slate-500 mt-0.5 leading-tight">
+                            {record.payments[0].day
+                              ? `${record.payments[0].day}, `
+                              : ''}
+                            {record.payments[0].date}
+                            {record.payments[0].time
+                              ? ` · ${record.payments[0].time}`
+                              : ''}
+                          </div>
                         )}
                       </td>
                       <td className="py-3.5 px-3 text-right font-mono font-semibold text-rose-600 tabular-nums border border-slate-200">
@@ -1680,7 +1764,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                       type="number"
                       min={0}
                       value={modalWhatsappMonthlyCharges || ''}
-                      placeholder="Enter WhatsApp monthly charges (e.g. 5000)"
+                      placeholder="Enter WhatsApp.billingMonthly charges (e.g. 5000)"
                       onChange={(e) => {
                         const val = Number(e.target.value) || 0;
                         setModalWhatsappMonthlyCharges(val);
@@ -1809,6 +1893,20 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     {formatCurrency(activeModalRecord.amountPaid, currency)}
                   </span>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-emerald-700 font-semibold">
+                    New Total Paid (Already + Now)
+                  </span>
+                  <span className="font-mono font-bold text-emerald-700 text-sm">
+                    {formatCurrency(
+                      Math.min(
+                        modalGrandTotal,
+                        activeModalRecord.amountPaid + enteredPayNum
+                      ),
+                      currency
+                    )}
+                  </span>
+                </div>
                 <div className="p-3 rounded-xl bg-rose-50 flex items-center justify-between">
                   <span className="font-bold text-rose-600">
                     Remaining Dues
@@ -1817,6 +1915,33 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     {formatCurrency(previewRemainingAfterPay, currency)}
                   </span>
                 </div>
+
+                {activeModalRecord.payments &&
+                  activeModalRecord.payments.length > 0 && (
+                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 mt-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                        Previous Payments in {selectedMonth} (
+                        {activeModalRecord.payments.length})
+                      </div>
+                      <div className="max-h-24 overflow-y-auto divide-y divide-slate-200/60">
+                        {activeModalRecord.payments.map((tx, idx) => (
+                          <div
+                            key={tx.id || idx}
+                            className="py-1 flex items-center justify-between gap-2 text-[11px]"
+                          >
+                            <span className="text-slate-600 font-mono">
+                              {tx.day ? `${tx.day}, ` : ''}
+                              {tx.date} · {tx.billingMonth || selectedMonth}
+                              {tx.time ? ` · ${tx.time}` : ''} ({tx.method})
+                            </span>
+                            <span className="font-mono font-bold text-emerald-700">
+                              +{formatCurrency(tx.amount, currency)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
               </div>
 
               <form
@@ -2001,14 +2126,14 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
         {/* Payment History Modal */}
         {historyModalClient && (
           <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div className="bg-white rounded-2xl border border-slate-200 max-w-2xl w-full p-6 shadow-xl space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
                     Payment History — {historyModalClient.name}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Complete chronological payment ledger across billing months
+                    Complete chronological payment ledger with Day, Date, Month &amp; Time
                   </p>
                 </div>
                 <button
@@ -2020,7 +2145,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                 </button>
               </div>
 
-              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 text-xs">
+              <div className="max-h-80 overflow-y-auto text-xs">
                 {Object.values(historyModalClient.monthlyRecords).flatMap(
                   (rec) => rec.payments
                 ).length === 0 ? (
@@ -2028,26 +2153,51 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     No payments recorded yet for {historyModalClient.name}.
                   </div>
                 ) : (
-                  Object.values(historyModalClient.monthlyRecords)
-                    .flatMap((rec) => rec.payments)
-                    .map((p) => (
-                      <div
-                        key={p.id}
-                        className="py-3 flex items-center justify-between"
-                      >
-                        <div>
-                          <div className="font-semibold text-slate-900">
-                            {p.month} · {p.method}
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            Date: {p.date} {p.note ? `· ${p.note}` : ''}
-                          </div>
-                        </div>
-                        <div className="font-mono font-bold text-emerald-600">
-                          +{formatCurrency(p.amount, currency)}
-                        </div>
-                      </div>
-                    ))
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
+                          <th className="py-2.5 px-3">#</th>
+                          <th className="py-2.5 px-3">Day</th>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Month</th>
+                          <th className="py-2.5 px-3">Time</th>
+                          <th className="py-2.5 px-3">Method / Note</th>
+                          <th className="py-2.5 px-3 text-right">Amount Paid</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {Object.values(historyModalClient.monthlyRecords)
+                          .flatMap((rec) => rec.payments)
+                          .map((p, idx, arr) => (
+                            <tr key={p.id || idx} className="hover:bg-slate-50/70">
+                              <td className="py-2.5 px-3 font-mono text-slate-400">
+                                #{arr.length - idx}
+                              </td>
+                              <td className="py-2.5 px-3 font-medium text-slate-800">
+                                {p.day || '—'}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-slate-800">
+                                {p.date}
+                              </td>
+                              <td className="py-2.5 px-3 font-semibold text-slate-700">
+                                {p.billingMonth}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-blue-700 font-medium">
+                                {p.time || '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600">
+                                {p.method}
+                                {p.note ? ` · ${p.note}` : ''}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600">
+                                +{formatCurrency(p.amount, currency)}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
 

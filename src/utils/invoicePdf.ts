@@ -404,6 +404,33 @@ export function buildInvoicePdfInstance(
     { align: 'right' }
   );
 
+  // Payment Record History under main table if payments exist
+  if (docData.payments && docData.payments.length > 0) {
+    let payY = y + 10;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(6, 95, 70);
+    pdf.text(
+      `PAYMENT HISTORY (${docData.payments.length}):`,
+      tableLeft,
+      payY
+    );
+    payY += 3.8;
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.2);
+    pdf.setTextColor(51, 65, 85);
+    for (const tx of docData.payments.slice(-3)) {
+      const tsLabel = `${tx.day ? `${tx.day}, ` : ''}${tx.date}${
+        tx.time ? ` at ${tx.time}` : ''
+      } (${tx.billingMonth || docData.billingMonth}) - ${tx.method}: ${formatCurrency(
+        tx.amount,
+        currency
+      )}`;
+      pdf.text(tsLabel.slice(0, 95), tableLeft, payY);
+      payY += 3.5;
+    }
+  }
+
   // Right Summary Card (Total Payable, Amount Paid, Remaining Balance)
   const summaryLeft = 185;
   const summaryWidth = pageWidth - 18 - summaryLeft;
@@ -965,6 +992,25 @@ export function printInvoiceDocument(
                   <span style="font-weight:800;">Balance Due</span>
                   <span class="mono" style="font-size:15px;font-weight:800;">${formatCurrency(remainingDues, currency)}</span>
                 </div>
+                ${
+                  docData.payments && docData.payments.length > 0
+                    ? `<div style="border-top:1px solid #e2e8f0;padding-top:8px;margin-top:2px;">
+                        <div style="font-size:9.5px;font-weight:800;text-transform:uppercase;color:#065f46;margin-bottom:5px;">Payment History (${docData.payments.length})</div>
+                        ${docData.payments
+                          .map(
+                            (tx, i) => `
+                          <div style="display:flex;justify-content:space-between;align-items:center;background:#ffffff;border:1px solid #a7f3d0;border-radius:6px;padding:5px 8px;margin-bottom:4px;font-size:10px;">
+                            <div>
+                              <div style="font-weight:700;color:#1e293b;">#${i + 1} • ${tx.day ? `${tx.day}, ` : ''}${tx.date}${tx.time ? ` at ${tx.time}` : ''}</div>
+                              <div style="font-size:9px;color:#64748b;">Month: ${tx.billingMonth || docData.billingMonth} • ${tx.method}${tx.bankName ? ` (${tx.bankName})` : ''}</div>
+                            </div>
+                            <span class="mono" style="font-weight:700;color:#047857;">${formatCurrency(tx.amount, currency)}</span>
+                          </div>`
+                          )
+                          .join('')}
+                      </div>`
+                    : ''
+                }
               </div>
             </div>
           </div>
@@ -1124,6 +1170,20 @@ export async function prepareWhatsAppPdfShare(
     `*Amount Paid:* ${formatCurrency(amountPaid, currency)}`,
     `*Balance Due:* ${formatCurrency(remainingDues, currency)}`
   );
+
+  if (docData.payments && docData.payments.length > 0) {
+    lines.push(``, `*Payment Record:*`);
+    docData.payments.forEach((tx, idx) => {
+      lines.push(
+        `${idx + 1}. ${tx.day ? `${tx.day}, ` : ''}${tx.date}${
+          tx.time ? ` at ${tx.time}` : ''
+        } (${tx.billingMonth || docData.billingMonth}) — ${formatCurrency(
+          tx.amount,
+          currency
+        )} via ${tx.method}`
+      );
+    });
+  }
 
   if (docData.invoiceNote && docData.invoiceNote.trim()) {
     lines.push(``, `*Note:* ${docData.invoiceNote.trim()}`);

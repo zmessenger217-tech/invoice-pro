@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { formatCurrency } from '../data/initialData';
-import { CompanyProfile, PartnerItem } from '../types';
+import { CompanyProfile, PartnerItem, PaymentTransaction } from '../types';
 import { resolveActiveLogoUrl, DEFAULT_BRAND_LOGO_DATA_URL } from './usePWAInstall';
 
 export interface PartnerSchoolReportItem {
@@ -20,6 +20,7 @@ export interface PartnerSchoolReportItem {
   schoolTotal?: number;
   schoolPaid?: number;
   schoolRemaining?: number;
+  schoolPayments?: PaymentTransaction[];
   partnerNote?: string;
   schoolStatus?: string;
 }
@@ -466,7 +467,7 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
       pdf.setFontSize(8);
       pdf.text(String(index + 1), colX.idx + 2, currY + 6);
 
-      // School Name (no school Billed / Paid / Dues shown)
+      // School Name + School Payment Timestamps
       pdf.setTextColor(15, 23, 42);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(8.5);
@@ -474,8 +475,22 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
         school.client.name.length > 34
           ? `${school.client.name.slice(0, 32)}...`
           : school.client.name;
-      if (school.client.address) {
-        pdf.text(truncatedName, colX.name + 2, currY + 4.5);
+      
+      pdf.text(truncatedName, colX.name + 2, currY + 4.5);
+      
+      if (school.schoolPayments && school.schoolPayments.length > 0) {
+        pdf.setTextColor(6, 95, 70); // Emerald-800
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(6.5);
+        
+        // List last 2 payments with time/date
+        let subY = currY + 8;
+        school.schoolPayments.slice(-2).forEach((tx) => {
+          const txText = `Paid: ${tx.day ? `${tx.day.slice(0, 3)}, ` : ''}${tx.date}${tx.time ? ` @ ${tx.time}` : ''}`;
+          pdf.text(txText.slice(0, 48), colX.name + 2, subY);
+          subY += 3;
+        });
+      } else if (school.client.address) {
         pdf.setTextColor(100, 116, 139);
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(6.5);
@@ -484,8 +499,6 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
             ? `${school.client.address.slice(0, 40)}...`
             : school.client.address;
         pdf.text(truncatedAddr, colX.name + 2, currY + 8);
-      } else {
-        pdf.text(truncatedName, colX.name + 2, currY + 6);
       }
 
       // Software Pay to Partner
@@ -621,7 +634,108 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
     { align: 'right' }
   );
 
-  currY += 14;
+  currY += 13;
+
+  // Partner Payment Installment History Section (Time, Date, Month & Day)
+  const monthPaidRec = partner.paidMonths?.[selectedMonth];
+  const partnerTxList: PaymentTransaction[] =
+    monthPaidRec?.payments && monthPaidRec.payments.length > 0
+      ? monthPaidRec.payments
+      : partnerAmountPaid > 0 && monthPaidRec?.paidDate
+      ? [
+          {
+            id: 'legacy-1',
+            date: monthPaidRec.paidDate,
+            time: monthPaidRec.paidTime,
+            day: monthPaidRec.paidDay,
+            amount: partnerAmountPaid,
+            method: 'Bank Transfer',
+            billingMonth: selectedMonth,
+          },
+        ]
+      : [];
+
+  if (partnerTxList.length > 0) {
+    if (currY > pageHeight - 55) {
+      pdf.addPage();
+      currY = 18;
+    }
+
+    pdf.setTextColor(15, 23, 42);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(9.5);
+    pdf.text(
+      `PARTNER PAYMENT RECORD — TIME, DATE, MONTH & DAY (${partnerTxList.length})`,
+      margin,
+      currY
+    );
+    currY += 3.5;
+
+    pdf.setFillColor(6, 95, 70); // Emerald-800
+    pdf.roundedRect(margin, currY, contentWidth, 7.5, 1, 1, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7.2);
+    pdf.text('#', margin + 2, currY + 5);
+    pdf.text('Day, Date & Time Paid', margin + 12, currY + 5);
+    pdf.text('Billing Month', margin + 88, currY + 5);
+    pdf.text('Method / Note', margin + 122, currY + 5);
+    pdf.text('Amount Paid', margin + contentWidth - 2, currY + 5, {
+      align: 'right',
+    });
+    currY += 7.5;
+
+    partnerTxList.forEach((tx, idx) => {
+      if (currY > pageHeight - 30) {
+        pdf.addPage();
+        currY = 18;
+      }
+      const rowH = 7.5;
+      const isEven = idx % 2 === 0;
+      pdf.setFillColor(isEven ? 240 : 255, isEven ? 253 : 255, isEven ? 244 : 255);
+      pdf.rect(margin, currY, contentWidth, rowH, 'F');
+      pdf.setDrawColor(209, 250, 229);
+      pdf.line(margin, currY + rowH, margin + contentWidth, currY + rowH);
+
+      pdf.setTextColor(100, 116, 139);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7.2);
+      pdf.text(String(idx + 1), margin + 2, currY + 5);
+
+      const dateTimeStr = `${tx.day ? `${tx.day}, ` : ''}${tx.date}${
+        tx.time ? ` at ${tx.time}` : ''
+      }`;
+      pdf.setTextColor(15, 23, 42);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(dateTimeStr.slice(0, 44), margin + 12, currY + 5);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(51, 65, 85);
+      pdf.text(
+        (tx.billingMonth || selectedMonth).slice(0, 18),
+        margin + 88,
+        currY + 5
+      );
+
+      const methodNote = `${tx.method || 'Bank Transfer'}${
+        tx.note ? ` (${tx.note})` : ''
+      }`;
+      pdf.text(methodNote.slice(0, 24), margin + 122, currY + 5);
+
+      pdf.setTextColor(5, 150, 105);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(
+        formatCurrency(tx.amount, currency),
+        margin + contentWidth - 2,
+        currY + 5,
+        { align: 'right' }
+      );
+
+      currY += rowH;
+    });
+
+    currY += 8;
+  }
 
   // Sign-off / Terms & Acknowledgment Section
   if (currY < pageHeight - 35) {
@@ -853,7 +967,21 @@ export function buildAllPartnersPdfInstance(options: AllPartnersReportOptions): 
 
   allPartnerData.forEach((item, idx) => {
     const isEven = idx % 2 === 0;
-    const rowH = 8.5;
+    const paidRec = item.partner.paidMonths?.[selectedMonth];
+    const lastTx =
+      paidRec?.payments && paidRec.payments.length > 0
+        ? paidRec.payments[paidRec.payments.length - 1]
+        : null;
+    const paidTimestampStr = lastTx
+      ? `Paid: ${lastTx.day ? `${lastTx.day}, ` : ''}${lastTx.date}${
+          lastTx.time ? ` at ${lastTx.time}` : ''
+        }`
+      : paidRec?.paidDate
+      ? `Paid: ${paidRec.paidDay ? `${paidRec.paidDay}, ` : ''}${paidRec.paidDate}${
+          paidRec.paidTime ? ` at ${paidRec.paidTime}` : ''
+        }`
+      : '';
+    const rowH = paidTimestampStr ? 11 : 8.5;
     pdf.setFillColor(isEven ? 255 : 248, isEven ? 255 : 250, isEven ? 255 : 252);
     pdf.rect(margin, currY, contentWidth, rowH, 'F');
     pdf.setDrawColor(241, 245, 249);
@@ -862,7 +990,13 @@ export function buildAllPartnersPdfInstance(options: AllPartnersReportOptions): 
     pdf.setTextColor(15, 23, 42);
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(8);
-    pdf.text(item.partner.name, colX.name + 2, currY + 5.5);
+    pdf.text(item.partner.name, colX.name + 2, currY + (paidTimestampStr ? 4.5 : 5.5));
+    if (paidTimestampStr) {
+      pdf.setTextColor(5, 150, 105);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(6.2);
+      pdf.text(paidTimestampStr.slice(0, 42), colX.name + 2, currY + 8.8);
+    }
 
     pdf.setTextColor(100, 116, 139);
     pdf.setFont('helvetica', 'normal');

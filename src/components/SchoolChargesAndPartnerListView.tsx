@@ -127,6 +127,8 @@ export const SchoolChargesAndPartnerListView: React.FC<
         status: rec.status,
         amountPaid: rec.amountPaid,
         remainingDues: rec.remainingDues,
+        schoolPayments: rec.payments || [],
+        partnerPaidRec: partnerObj?.paidMonths?.[selectedMonth],
       };
     });
 
@@ -280,6 +282,7 @@ export const SchoolChargesAndPartnerListView: React.FC<
           softwareCharges: Number(rec.softwareCharges || 0),
           whatsappCharges: Number(rec.whatsappCharges || 0),
           chatbotCharges: Number(rec.chatbotCharges || 0),
+          schoolPayments: rec.payments || [],
           partnerNote: rec.partnerNote || c.partnerNote,
         };
       })
@@ -676,9 +679,23 @@ export const SchoolChargesAndPartnerListView: React.FC<
                     {/* Partner Name */}
                     <td className="py-3 px-3.5 border border-slate-200 bg-indigo-50/10">
                       {row.hasPartner ? (
-                        <div className="flex items-center gap-1.5 text-indigo-900 font-medium">
-                          <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                          <span className="truncate">{row.partnerName}</span>
+                        <div>
+                          <div className="flex items-center gap-1.5 text-indigo-900 font-medium">
+                            <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            <span className="truncate">{row.partnerName}</span>
+                          </div>
+                          {row.partnerPaidRec?.paidDate && (
+                            <div className="text-[10px] text-emerald-700 font-normal mt-0.5 leading-tight">
+                              Paid:{' '}
+                              {row.partnerPaidRec.paidDay
+                                ? `${row.partnerPaidRec.paidDay}, `
+                                : ''}
+                              {row.partnerPaidRec.paidDate}
+                              {row.partnerPaidRec.paidTime
+                                ? ` at ${row.partnerPaidRec.paidTime}`
+                                : ''}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <span className="text-slate-400 italic">None (Direct)</span>
@@ -731,6 +748,17 @@ export const SchoolChargesAndPartnerListView: React.FC<
                       >
                         {row.status}
                       </span>
+                      {row.schoolPayments.length > 0 && (
+                        <div className="text-[9.5px] text-slate-500 mt-1 leading-tight">
+                          {(() => {
+                            const lastTx =
+                              row.schoolPayments[row.schoolPayments.length - 1];
+                            return `${lastTx.day ? `${lastTx.day.slice(0, 3)}, ` : ''}${
+                              lastTx.date
+                            }${lastTx.time ? ` • ${lastTx.time}` : ''}`;
+                          })()}
+                        </div>
+                      )}
                     </td>
 
                     {/* Action Buttons */}
