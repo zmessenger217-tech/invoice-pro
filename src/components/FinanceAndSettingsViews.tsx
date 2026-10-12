@@ -1002,12 +1002,7 @@ export const FinanceAndSettingsViews: React.FC<
               />
             </div>
 
-            <button
-              type="submit"
-              className="py-2.5 px-5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors"
-            >
-              Add Partner
-            </button>
+
           </form>
         </div>
 
@@ -1693,6 +1688,7 @@ export const FinanceAndSettingsViews: React.FC<
                             note: partnerPaymentNote.trim() || undefined,
                             paymentFromAccountId: resolvedAccountId,
                             paymentFromAccountName: resolvedAccountName,
+                            bankName: resolvedAccountName,
                           }
                         );
                       } else {

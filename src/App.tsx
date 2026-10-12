@@ -1169,7 +1169,10 @@ export default function App() {
     method: PaymentTransaction['method'],
     note: string,
     whatsappBillingType?: 'per_message' | 'per_month',
-    explicitWhatsappCharges?: number
+    explicitWhatsappCharges?: number,
+    accountId?: string,
+    accountName?: string,
+    bankName?: string
   ) => {
     const target = clients.find((c) => c.id === clientId);
     if (!target) return;
@@ -1215,6 +1218,9 @@ export default function App() {
       method,
       note: note.trim() || undefined,
       billingMonth: month,
+      paymentFromAccountId: accountId,
+      paymentFromAccountName: accountName,
+      bankName: bankName,
     };
 
     const updatedClient: ClientEntity = {
@@ -1990,6 +1996,8 @@ export default function App() {
       method: 'Bank Transfer',
       note: 'Full Partner Payout',
       billingMonth: month,
+      paymentFromAccountName: 'Primary Account',
+      bankName: 'Default Bank',
     };
 
     const updatedPartner: PartnerItem = {
@@ -2168,6 +2176,9 @@ export default function App() {
             method: options?.method || 'Bank Transfer',
             note: options?.note?.trim() || undefined,
             billingMonth: month,
+            paymentFromAccountId: options?.accountId,
+            paymentFromAccountName: options?.accountName,
+            bankName: options?.bankName,
           }
         : null;
 

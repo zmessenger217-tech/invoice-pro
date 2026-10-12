@@ -82,7 +82,7 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
           </div>
           {showExpenses && (
             <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-indigo-500" />
+              <span className="w-3 h-3 rounded-full bg-red-500" />
               <span className="text-slate-700">Expenses</span>
             </div>
           )}
@@ -122,7 +122,7 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
             <>
               <polyline
                 fill="none"
-                stroke="#6366f1"
+                stroke="#ef4444"
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -137,7 +137,7 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
                     cx={cx}
                     cy={cy}
                     r={hoveredIdx === i ? 5 : 3.5}
-                    className="fill-white stroke-indigo-500 stroke-2 transition-all cursor-pointer"
+                    className="fill-white stroke-red-500 stroke-2 transition-all cursor-pointer"
                     onMouseEnter={() => setHoveredIdx(i)}
                     onMouseLeave={() => setHoveredIdx(null)}
                   />
@@ -207,7 +207,7 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
               Revenue: {formatCurrency(data[hoveredIdx].revenue, currency)}
             </div>
             {showExpenses && (
-              <div className="font-mono text-indigo-300">
+              <div className="font-mono text-red-300">
                 Expenses: {formatCurrency(data[hoveredIdx].expenses, currency)}
               </div>
             )}

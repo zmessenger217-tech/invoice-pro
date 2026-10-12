@@ -72,7 +72,8 @@ interface ClientBillingViewsProps {
     whatsappBillingType?: 'per_message' | 'per_month',
     whatsappCharges?: number,
     paymentFromAccountId?: string,
-    paymentFromAccountName?: string
+    paymentFromAccountName?: string,
+    bankName?: string
   ) => void;
   onGenerateInvoiceWithCharges: (
     clientId: string,
@@ -662,6 +663,32 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           </div>
 
+          <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-medium text-slate-600">
+                Financial Summary
+              </div>
+              <div className="mt-2 space-y-1">
+                <div className="flex justify-between gap-4">
+                  <span className="text-[11px] text-slate-500">Net Expected Collection:</span>
+                  <span className="text-sm font-bold text-slate-900 font-mono">
+                    {formatCurrency(totalAmountToBeCollected - totalPartnerPaymentCut, currency)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-4">
+                  <span className="text-[11px] text-slate-500">To be Collected:</span>
+                  <span className="text-sm font-bold text-emerald-600 font-mono">
+                    {formatCurrency(totalAmountToBeCollected, currency)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+          </div>
+
           <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between">
             <div>
               <div className="text-xs font-medium text-slate-500">
@@ -702,15 +729,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               <div className="text-[11px] font-semibold text-amber-600 mt-1">
                 Partner Dues: {formatCurrency(Math.max(0, totalPartnerPaymentCut - partnerPayoutsTotal), currency)}
               </div>
-              {monthlyExpenses > 0 && onResetMonthlyExpenses && (
-                <button
-                  type="button"
-                  onClick={onResetMonthlyExpenses}
-                  className="mt-1.5 px-2 py-0.5 text-[10px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded transition-colors"
-                >
-                  Reset to 0
-                </button>
-              )}
+
             </div>
             <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
               <TrendingDown className="w-5 h-5" />
@@ -759,22 +778,6 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-5 flex items-center justify-between">
-            <div>
-              <div className="text-xs font-medium text-slate-600">
-                Total Revenue After Partner Payments
-              </div>
-              <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
-                {formatCurrency(monthlyRevenue - partnerPayoutsTotal, currency)}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                After {formatCurrency(partnerPayoutsTotal, currency)} partner payments
-              </div>
-            </div>
-            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-          </div>
         </div>
 
         {/* Monthly Revenue vs Expenses Chart */}
@@ -2035,7 +2038,8 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     finalBillingType,
                     finalWhatsappCharges,
                     resolvedAccountId,
-                    resolvedAccountName
+                    resolvedAccountName,
+                    selectedBank
                   );
                   setPaymentModalClient(null);
                 }}
