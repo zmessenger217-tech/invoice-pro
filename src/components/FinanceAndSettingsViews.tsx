@@ -1002,7 +1002,12 @@ export const FinanceAndSettingsViews: React.FC<
               />
             </div>
 
-
+            <button
+              type="submit"
+              className="py-2.5 px-5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors"
+            >
+              Add Partner
+            </button>
           </form>
         </div>
 
@@ -1246,6 +1251,7 @@ export const FinanceAndSettingsViews: React.FC<
 
                         <button
                           type="button"
+                          disabled={finalPayout - partnerAmountPaid <= 0}
                           onClick={() => {
                             const remainingToPay = Math.max(
                               0,
@@ -1265,7 +1271,11 @@ export const FinanceAndSettingsViews: React.FC<
                             );
                             setPartnerPaymentNote('');
                           }}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs"
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs ${
+                            finalPayout - partnerAmountPaid <= 0
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          }`}
                         >
                           <CreditCard className="w-3.5 h-3.5" />
                           <span>
@@ -1604,7 +1614,7 @@ export const FinanceAndSettingsViews: React.FC<
         {/* Centered Make Partner Payment Modal */}
         {paymentPartnerModal && (
           <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
               <div className="flex items-start justify-between border-b border-slate-100 pb-3.5">
                 <div className="flex items-center gap-2.5">
                   <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">

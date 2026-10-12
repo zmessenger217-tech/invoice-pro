@@ -1694,13 +1694,18 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                       </td>
                       <td className="py-3.5 px-3 text-right border border-slate-200">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openPaymentModalForClient(client)}
-                            className="px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap"
-                          >
-                            Make Payment
-                          </button>
+                            <button
+                              type="button"
+                              disabled={record.remainingDues <= 0}
+                              onClick={() => openPaymentModalForClient(client)}
+                              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+                                record.remainingDues <= 0
+                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                  : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                              }`}
+                            >
+                              Make Payment
+                            </button>
                           <button
                             type="button"
                             onClick={() =>
@@ -1747,7 +1752,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
         {/* 7. MAKE PAYMENT MODAL — Pre-filled with saved WhatsApp Rate, Messages, and Charges */}
         {paymentModalClient && activeModalRecord && (
           <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[92vh] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
@@ -1924,7 +1929,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                       <span>Partner: {activeModalRecord.partnerName || paymentModalClient.partnerName || 'Assigned Partner'}</span>
                     </span>
                     <span className="font-mono text-indigo-700">
-                      Payout: {formatCurrency(activeModalRecord.partnerTotalPayment ?? paymentModalClient.partnerTotalPayment ?? 0, currency)}
+                      Payout: {(activeModalRecord.partnerTotalPayment ?? paymentModalClient.partnerTotalPayment ?? 0) === 0 ? `${currency} 0` : formatCurrency(activeModalRecord.partnerTotalPayment ?? paymentModalClient.partnerTotalPayment ?? 0, currency)}
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-500 flex items-center justify-between">
@@ -2048,7 +2053,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-xs font-semibold text-slate-700">
-                      How much did the {term.singular.toLowerCase()} pay?
+                      How much did the {term.singular.toLowerCase()} pay? (Dues: {formatCurrency(activeModalRecord.remainingDues, currency)})
                     </label>
                     <button
                       type="button"
