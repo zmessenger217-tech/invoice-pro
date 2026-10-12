@@ -1407,8 +1407,10 @@ export const InvoicePreviewAndEditor: React.FC<
                               </div>
                               <div className="text-[9.5px] text-slate-500 truncate">
                                 Month: {tx.billingMonth || invoiceDoc.billingMonth} •{' '}
+                                {tx.paymentFromAccountName || tx.bankName
+                                  ? `Account: ${tx.paymentFromAccountName || tx.bankName} • `
+                                  : ''}
                                 {tx.method}
-                                {tx.bankName ? ` (${tx.bankName})` : ''}
                               </div>
                             </div>
                             <span className="font-mono font-bold text-emerald-700 shrink-0 tabular-nums">

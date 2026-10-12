@@ -679,7 +679,7 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
     pdf.text('#', margin + 2, currY + 5);
     pdf.text('Day, Date & Time Paid', margin + 12, currY + 5);
     pdf.text('Billing Month', margin + 88, currY + 5);
-    pdf.text('Method / Note', margin + 122, currY + 5);
+    pdf.text('Paid From Account / Method', margin + 118, currY + 5);
     pdf.text('Amount Paid', margin + contentWidth - 2, currY + 5, {
       align: 'right',
     });
@@ -712,15 +712,16 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
       pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(51, 65, 85);
       pdf.text(
-        (tx.billingMonth || selectedMonth).slice(0, 18),
+        (tx.billingMonth || selectedMonth).slice(0, 16),
         margin + 88,
         currY + 5
       );
 
-      const methodNote = `${tx.method || 'Bank Transfer'}${
-        tx.note ? ` (${tx.note})` : ''
-      }`;
-      pdf.text(methodNote.slice(0, 24), margin + 122, currY + 5);
+      const accLabel = tx.paymentFromAccountName || tx.bankName;
+      const methodNote = `${accLabel ? `${accLabel} · ` : ''}${
+        tx.method || 'Bank Transfer'
+      }${tx.note ? ` (${tx.note})` : ''}`;
+      pdf.text(methodNote.slice(0, 28), margin + 118, currY + 5);
 
       pdf.setTextColor(5, 150, 105);
       pdf.setFont('helvetica', 'bold');

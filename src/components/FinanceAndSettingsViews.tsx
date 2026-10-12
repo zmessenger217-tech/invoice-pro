@@ -29,6 +29,7 @@ import {
 } from '../data/initialData';
 import { compressImageDataUrl } from '../firebase';
 import {
+  AccountItem,
   ActiveNavTab,
   ClientEntity,
   CompanyProfile,
@@ -55,6 +56,7 @@ interface FinanceAndSettingsViewsProps {
   clients: ClientEntity[];
   expenses: ExpenseItem[];
   partners: PartnerItem[];
+  accounts?: AccountItem[];
   selectedMonth: string;
   setSelectedMonth: (m: string) => void;
   monthlyRevenue: number;
@@ -73,6 +75,8 @@ interface FinanceAndSettingsViewsProps {
       mode?: 'add' | 'set';
       method?: PaymentTransaction['method'];
       note?: string;
+      paymentFromAccountId?: string;
+      paymentFromAccountName?: string;
     }
   ) => void;
   onDeletePartner: (partnerId: string) => void;
@@ -108,6 +112,7 @@ export const FinanceAndSettingsViews: React.FC<
   clients,
   expenses,
   partners,
+  accounts = [],
   selectedMonth,
   setSelectedMonth,
   monthlyRevenue,
@@ -125,6 +130,7 @@ export const FinanceAndSettingsViews: React.FC<
   onUpdateCompany,
 }) => {
   const currency = company.currency || 'Rs.';
+  const activeAccounts = accounts.filter((a) => a.isActive !== false);
 
   // 9. Expense Form State — starts clean
   const [expDesc, setExpDesc] = useState('');
@@ -154,6 +160,19 @@ export const FinanceAndSettingsViews: React.FC<
   const [partnerPaymentMethod, setPartnerPaymentMethod] =
     useState<PaymentTransaction['method']>('Bank Transfer');
   const [partnerPaymentNote, setPartnerPaymentNote] = useState<string>('');
+  const [partnerPaymentAccount, setPartnerPaymentAccount] = useState<string>(
+    () =>
+      activeAccounts.length > 0 ? activeAccounts[0].accountName : ''
+  );
+
+  useEffect(() => {
+    if (
+      activeAccounts.length > 0 &&
+      !activeAccounts.some((a) => a.accountName === partnerPaymentAccount)
+    ) {
+      setPartnerPaymentAccount(activeAccounts[0].accountName);
+    }
+  }, [activeAccounts, partnerPaymentAccount]);
 
   // 11. Finance Report Filter State
   const [reportScope, setReportScope] = useState<
@@ -1653,6 +1672,16 @@ export const FinanceAndSettingsViews: React.FC<
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
+                      const matchedAcc = activeAccounts.find(
+                        (a) =>
+                          a.accountName === partnerPaymentAccount ||
+                          a.id === partnerPaymentAccount
+                      );
+                      const resolvedAccountName =
+                        matchedAcc?.accountName ||
+                        partnerPaymentAccount ||
+                        'Cash Account';
+                      const resolvedAccountId = matchedAcc?.id;
                       if (onUpdatePartnerPayment) {
                         onUpdatePartnerPayment(
                           paymentPartnerModal.partner.id,
@@ -1661,7 +1690,9 @@ export const FinanceAndSettingsViews: React.FC<
                           {
                             mode: 'add',
                             method: partnerPaymentMethod,
-                            note: partnerPaymentNote,
+                            note: partnerPaymentNote.trim() || undefined,
+                            paymentFromAccountId: resolvedAccountId,
+                            paymentFromAccountName: resolvedAccountName,
                           }
                         );
                       } else {
@@ -1730,7 +1761,11 @@ export const FinanceAndSettingsViews: React.FC<
                               <span className="text-slate-600 font-mono">
                                 {tx.day ? `${tx.day}, ` : ''}
                                 {tx.date}
-                                {tx.time ? ` · ${tx.time}` : ''} ({tx.method})
+                                {tx.time ? ` · ${tx.time}` : ''} (
+                                {tx.paymentFromAccountName || tx.bankName
+                                  ? `${tx.paymentFromAccountName || tx.bankName} · `
+                                  : ''}
+                                {tx.method})
                               </span>
                               <span className="font-mono font-bold text-emerald-700">
                                 +{formatCurrency(tx.amount, currency)}
@@ -1773,6 +1808,7 @@ export const FinanceAndSettingsViews: React.FC<
                       </p>
                     </div>
 
+                    {/* Payment Method & Account Selection */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="block text-[11px] font-medium text-slate-600 mb-1">
@@ -1780,11 +1816,13 @@ export const FinanceAndSettingsViews: React.FC<
                         </label>
                         <select
                           value={partnerPaymentMethod}
-                          onChange={(e) =>
-                            setPartnerPaymentMethod(
-                              e.target.value as PaymentTransaction['method']
-                            )
-                          }
+                          onChange={(e) => {
+                            const m = e.target.value as PaymentTransaction['method'];
+                            setPartnerPaymentMethod(m);
+                            if (m === 'Cash') {
+                              setPartnerPaymentAccount('');
+                            }
+                          }}
                           className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white"
                         >
                           <option value="Bank Transfer">Bank Transfer</option>
@@ -1793,20 +1831,58 @@ export const FinanceAndSettingsViews: React.FC<
                           <option value="Cheque">Cheque</option>
                         </select>
                       </div>
+
                       <div>
-                        <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                          Note / Reference (Optional)
-                        </label>
-                        <input
-                          type="text"
-                          value={partnerPaymentNote}
-                          onChange={(e) =>
-                            setPartnerPaymentNote(e.target.value)
-                          }
-                          placeholder="e.g. Installment #2, Bank Ref"
-                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200"
-                        />
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-semibold text-slate-700">
+                            Payment From Account {partnerPaymentMethod !== 'Cash' && <span className="text-rose-500">*</span>}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentPartnerModal(null);
+                              setDetailPartnerModal(null);
+                              setActiveTab('accounts');
+                            }}
+                            className="text-[10px] text-blue-600 hover:underline font-semibold"
+                          >
+                            + Manage Accounts
+                          </button>
+                        </div>
+                        <select
+                          required={partnerPaymentMethod !== 'Cash'}
+                          value={partnerPaymentAccount}
+                          onChange={(e) => {
+                            const b = e.target.value;
+                            setPartnerPaymentAccount(b);
+                          }}
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                        >
+                          <option value="">
+                            {partnerPaymentMethod === 'Cash' ? 'None (Cash Payment)' : 'Select Account'}
+                          </option>
+                          {activeAccounts.map((acc) => (
+                            <option key={acc.id} value={acc.accountName}>
+                              {acc.accountName}
+                            </option>
+                          ))}
+                        </select>
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        Note / Reference (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={partnerPaymentNote}
+                        onChange={(e) =>
+                          setPartnerPaymentNote(e.target.value)
+                        }
+                        placeholder="e.g. Installment #2, Bank Ref"
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200"
+                      />
                     </div>
 
                     {/* Quick Amount Buttons */}
@@ -2064,6 +2140,7 @@ export const FinanceAndSettingsViews: React.FC<
                           <th className="py-2 px-3">Date</th>
                           <th className="py-2 px-3">Month</th>
                           <th className="py-2 px-3">Time</th>
+                          <th className="py-2 px-3">Paid From Account</th>
                           <th className="py-2 px-3">Method / Note</th>
                           <th className="py-2 px-3 text-right">Amount Paid</th>
                         </tr>
@@ -2083,6 +2160,7 @@ export const FinanceAndSettingsViews: React.FC<
                                 day: modalMonthRec?.paidDay || '—',
                                 billingMonth: selectedMonth,
                                 method: 'Bank Transfer' as const,
+                                paymentFromAccountName: '—',
                               },
                             ]
                         ).map((tx, idx, arr) => (
@@ -2101,6 +2179,9 @@ export const FinanceAndSettingsViews: React.FC<
                             </td>
                             <td className="py-2 px-3 font-mono text-indigo-700 font-medium">
                               {tx.time || '—'}
+                            </td>
+                            <td className="py-2 px-3 font-semibold text-slate-800">
+                              {tx.paymentFromAccountName || tx.bankName || '—'}
                             </td>
                             <td className="py-2 px-3 text-slate-600">
                               {tx.method}

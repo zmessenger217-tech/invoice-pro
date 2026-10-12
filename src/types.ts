@@ -83,6 +83,15 @@ export interface CompanyProfile {
   receiptLogMonth?: string;
 }
 
+export interface AccountItem {
+  id: string;
+  accountName: string;
+  ownerId: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface PaymentTransaction {
   id: string;
   date: string;
@@ -93,6 +102,8 @@ export interface PaymentTransaction {
   bankName?: string;
   note?: string;
   billingMonth: string;
+  paymentFromAccountId?: string;
+  paymentFromAccountName?: string;
 }
 
 export type PaymentStatus = 'Paid' | 'Partially Paid' | 'Unpaid';
@@ -251,6 +262,7 @@ export type ActiveNavTab =
   | 'receipt-log'
   | 'expenses'
   | 'partners'
+  | 'accounts'
   | 'finance-report'
   | 'enable-disable'
   | 'settings';

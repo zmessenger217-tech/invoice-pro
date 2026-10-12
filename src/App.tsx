@@ -17,9 +17,11 @@ import {
   Trash2,
   UserPlus,
   Users,
+  Wallet,
   X,
 } from 'lucide-react';
 import { AuthAndOnboarding } from './components/AuthAndOnboarding';
+import { AccountManagementView } from './components/AccountManagementView';
 import { ClientBillingViews } from './components/ClientBillingViews';
 import { FinanceAndSettingsViews } from './components/FinanceAndSettingsViews';
 import { InvoiceLogView } from './components/InvoiceLogView';
@@ -39,6 +41,7 @@ import {
   INITIAL_EXPENSES,
   INITIAL_PARTNERS,
   isClientInvoiceGenerated,
+  parseMonthLabel,
 } from './data/initialData';
 import {
   auth,
@@ -47,6 +50,7 @@ import {
   deleteClientFromFirestore,
   deleteExpenseFromFirestore,
   deletePartnerFromFirestore,
+  deleteAccountFromFirestore,
   loadOrBootstrapWorkspace,
   onAuthStateChanged,
   signInWithEmailPassword,
@@ -55,10 +59,12 @@ import {
   subscribeToWorkspaceRealtime,
   syncClientToFirestore,
   syncPartnerToFirestore,
+  syncAccountToFirestore,
   syncWorkspaceProfileToFirestore,
   User,
 } from './firebase';
 import {
+  AccountItem,
   ActiveNavTab,
   AuthScreenMode,
   ClientEntity,
@@ -233,6 +239,10 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState<string>(() =>
     getCurrentMonthLabel()
   );
+  const [realWorldMonth, setRealWorldMonth] = useState<string>(() =>
+    getCurrentMonthLabel()
+  );
+  const lastRealWorldMonthRef = useRef<string>(getCurrentMonthLabel());
 
   // Remove any legacy shared localStorage keys on mount so accounts never share browser cache
   useEffect(() => {
@@ -254,6 +264,34 @@ export default function App() {
   const [expenses, setExpenses] = useState<ExpenseItem[]>(INITIAL_EXPENSES);
 
   const [partners, setPartners] = useState<PartnerItem[]>(INITIAL_PARTNERS);
+
+  const [accounts, setAccounts] = useState<AccountItem[]>([]);
+
+  const handleSaveAccount = async (account: AccountItem, isNew: boolean) => {
+    const updatedList = isNew
+      ? [account, ...accounts]
+      : accounts.map((acc) => (acc.id === account.id ? account : acc));
+    setAccounts(updatedList);
+    if (firebaseUser) {
+      try {
+        await syncAccountToFirestore(firebaseUser.uid, account, isNew);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleDeleteAccount = async (accountId: string) => {
+    const updatedList = accounts.filter((acc) => acc.id !== accountId);
+    setAccounts(updatedList);
+    if (firebaseUser) {
+      try {
+        await deleteAccountFromFirestore(firebaseUser.uid, accountId);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
 
   const [centerPopup, setCenterPopup] = useState<{
     title: string;
@@ -512,12 +550,12 @@ export default function App() {
     try {
       localStorage.setItem(
         getAccountStorageKey(firebaseUser.uid),
-        JSON.stringify({ company, clients, expenses, partners })
+        JSON.stringify({ company, clients, expenses, partners, accounts })
       );
     } catch {
       // ignore
     }
-  }, [firebaseUser, company, clients, expenses, partners]);
+  }, [firebaseUser, company, clients, expenses, partners, accounts]);
 
   // Ensure default brand logo is converted to a base64 Data URL so jsPDF and Print always render it
   useEffect(() => {
@@ -637,6 +675,9 @@ export default function App() {
         onPartnersChange: (remotePartners) => {
           setPartners(remotePartners);
         },
+        onAccountsChange: (remoteAccounts) => {
+          setAccounts(remoteAccounts);
+        },
       }
     );
 
@@ -644,6 +685,86 @@ export default function App() {
       unsubscribeRealtime();
     };
   }, [firebaseUser]);
+
+  // Real-time calendar monitor: automatically switches to the new month when a new month starts in the real world
+  useEffect(() => {
+    const checkRealWorldMonthRollover = () => {
+      const currentMonthNow = getCurrentMonthLabel();
+      if (currentMonthNow !== lastRealWorldMonthRef.current) {
+        lastRealWorldMonthRef.current = currentMonthNow;
+        setRealWorldMonth(currentMonthNow);
+        setSelectedMonth(currentMonthNow);
+        showCenterPopup(
+          'New Month Started',
+          `Real-time calendar advanced to ${currentMonthNow}. Billing cycle updated automatically.`,
+          'info'
+        );
+      }
+    };
+
+    const intervalId = setInterval(checkRealWorldMonthRollover, 5000);
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        checkRealWorldMonthRollover();
+      }
+    };
+    window.addEventListener('focus', checkRealWorldMonthRollover);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('focus', checkRealWorldMonthRollover);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, []);
+
+  // Automatically initialize and persist the current real-world month's ledger record for active clients when a new month starts
+  useEffect(() => {
+    const nowParsed = parseMonthLabel(realWorldMonth);
+    if (!nowParsed || clients.length === 0) return;
+
+    const clientsToRollover: ClientEntity[] = [];
+    const updatedClients = clients.map((client) => {
+      if (!client.enabled) return client;
+      if (client.monthlyRecords?.[realWorldMonth]) return client;
+
+      const recordKeys = Object.keys(client.monthlyRecords || {});
+      const hasPriorMonthRecord = recordKeys.some((k) => {
+        const p = parseMonthLabel(k);
+        return p !== null && p.serial < nowParsed.serial;
+      });
+
+      if (!hasPriorMonthRecord && recordKeys.length > 0) {
+        return client;
+      }
+
+      const computedNewMonthRecord = getOrComputeMonthlyRecord(
+        client,
+        realWorldMonth
+      );
+      const rolledClient: ClientEntity = {
+        ...client,
+        monthlyRecords: {
+          ...(client.monthlyRecords || {}),
+          [realWorldMonth]: computedNewMonthRecord,
+        },
+      };
+      clientsToRollover.push(rolledClient);
+      return rolledClient;
+    });
+
+    if (clientsToRollover.length > 0) {
+      setClients(updatedClients);
+      const activeUser = firebaseUser || auth.currentUser;
+      if (activeUser) {
+        Promise.all(
+          clientsToRollover.map((c) =>
+            syncClientToFirestore(activeUser.uid, c, false)
+          )
+        ).catch((err) => console.error(err));
+      }
+    }
+  }, [realWorldMonth, clients, firebaseUser]);
 
   const term = useMemo(() => getTerminology(company), [company]);
 
@@ -2287,6 +2408,7 @@ export default function App() {
           setClients(loaded.clients);
           setExpenses(loaded.expenses);
           setPartners(loaded.partners);
+          setAccounts(loaded.accounts);
           setActiveTab('dashboard');
           setAuthScreenMode('app');
         }}
@@ -2350,6 +2472,7 @@ export default function App() {
       icon: ToggleLeft,
     },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'accounts', label: 'Account Management', icon: Wallet },
   ];
 
   return (
@@ -2652,6 +2775,7 @@ export default function App() {
               term={term}
               clients={clients}
               partners={partners}
+              accounts={accounts}
               selectedMonth={selectedMonth}
               setSelectedMonth={setSelectedMonth}
               monthlyRevenue={monthlyRevenue}
@@ -2736,6 +2860,7 @@ export default function App() {
               clients={clients}
               expenses={activeExpenses}
               partners={partners}
+              accounts={accounts}
               selectedMonth={selectedMonth}
               setSelectedMonth={setSelectedMonth}
               monthlyRevenue={monthlyRevenue}
@@ -2751,6 +2876,20 @@ export default function App() {
               onToggleClientEnabled={handleToggleClientEnabled}
               onDeleteClient={handleDeleteClient}
               onUpdateCompany={handleUpdateCompany}
+            />
+          )}
+
+          {activeTab === 'accounts' && (
+            <AccountManagementView
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              term={term}
+              accounts={accounts}
+              clients={clients}
+              partners={partners}
+              currency={company.currency || 'Rs.'}
+              onSaveAccount={handleSaveAccount}
+              onDeleteAccount={handleDeleteAccount}
             />
           )}
         </main>

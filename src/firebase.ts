@@ -33,6 +33,7 @@ import {
 import firebaseConfig from '../firebase-applet-config.json';
 import { getCurrentMonthLabel } from './data/initialData';
 import {
+  AccountItem,
   ClientEntity,
   CompanyProfile,
   ExpenseItem,
@@ -654,6 +655,7 @@ export function subscribeToWorkspaceRealtime(
     onClientsChange: (clients: ClientEntity[]) => void;
     onExpensesChange: (expenses: ExpenseItem[]) => void;
     onPartnersChange: (partners: PartnerItem[]) => void;
+    onAccountsChange?: (accounts: AccountItem[]) => void;
   }
 ): () => void {
   const userId = sanitizeId(user.uid);
@@ -661,6 +663,7 @@ export function subscribeToWorkspaceRealtime(
   const clientsPath = `workspaces/${userId}/clients`;
   const expensesPath = `workspaces/${userId}/expenses`;
   const partnersPath = `workspaces/${userId}/partners`;
+  const accountsPath = `workspaces/${userId}/accounts`;
 
   // Test connection on boot
   void testConnection();
@@ -821,11 +824,35 @@ export function subscribeToWorkspaceRealtime(
     }
   );
 
+  const unsubAccounts = onSnapshot(
+    collection(db, 'workspaces', userId, 'accounts'),
+    (snap) => {
+      const list: AccountItem[] = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          accountName: data.accountName || '',
+          ownerId: data.ownerId || userId,
+          isActive: data.isActive !== false,
+          createdAt:
+            data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          updatedAt:
+            data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        };
+      });
+      callbacks.onAccountsChange?.(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, accountsPath);
+    }
+  );
+
   return () => {
     unsubWorkspace();
     unsubClients();
     unsubExpenses();
     unsubPartners();
+    unsubAccounts();
   };
 }
 
@@ -834,12 +861,14 @@ export async function loadOrBootstrapWorkspace(
   defaultCompany: CompanyProfile,
   defaultClients: ClientEntity[],
   defaultExpenses: ExpenseItem[],
-  defaultPartners: PartnerItem[]
+  defaultPartners: PartnerItem[],
+  defaultAccounts: AccountItem[] = []
 ): Promise<{
   company: CompanyProfile;
   clients: ClientEntity[];
   expenses: ExpenseItem[];
   partners: PartnerItem[];
+  accounts: AccountItem[];
   isNewWorkspace: boolean;
 }> {
   try {
@@ -894,6 +923,7 @@ export async function loadOrBootstrapWorkspace(
       clients: defaultClients,
       expenses: defaultExpenses,
       partners: defaultPartners,
+      accounts: defaultAccounts,
       isNewWorkspace: true,
     };
   }
@@ -1044,8 +1074,34 @@ export async function loadOrBootstrapWorkspace(
     handleFirestoreError(error, OperationType.LIST, partnersPath);
   }
 
+  let accounts: AccountItem[] = [];
+  try {
+    const aSnap = await getDocs(
+      collection(db, 'workspaces', userId, 'accounts')
+    );
+    accounts = aSnap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        accountName: data.accountName || '',
+        ownerId: data.ownerId || userId,
+        isActive: data.isActive !== false,
+        createdAt:
+          data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        updatedAt:
+          data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+      };
+    });
+  } catch (error) {
+    // ignore if accounts collection doesn't exist
+  }
+
   if (partners.length === 0) {
     partners = defaultPartners;
+  }
+
+  if (accounts.length === 0 && defaultAccounts.length > 0) {
+    accounts = defaultAccounts;
   }
 
   return {
@@ -1053,6 +1109,7 @@ export async function loadOrBootstrapWorkspace(
     clients,
     expenses,
     partners,
+    accounts,
     isNewWorkspace: false,
   };
 }
@@ -1376,5 +1433,94 @@ export async function deletePartnerFromFirestore(
     await deleteDoc(doc(db, 'workspaces', cleanUid, 'partners', cleanId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function syncAccountToFirestore(
+  userId: string,
+  account: AccountItem,
+  isCreate: boolean
+): Promise<void> {
+  const cleanUid = sanitizeId(userId);
+  await ensureWorkspaceDocumentExists(cleanUid);
+
+  const cleanId = sanitizeId(account.id);
+  const path = `workspaces/${cleanUid}/accounts/${cleanId}`;
+  const ref = doc(db, 'workspaces', cleanUid, 'accounts', cleanId);
+
+  let shouldCreate = isCreate;
+  if (!isCreate) {
+    try {
+      const snap = await getDoc(ref);
+      shouldCreate = !snap.exists();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+    }
+  }
+
+  try {
+    if (shouldCreate) {
+      await setDoc(ref, {
+        ownerId: cleanUid,
+        accountName: clampString(account.accountName, 120, 'Account'),
+        isActive: Boolean(account.isActive),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await updateDoc(ref, {
+        accountName: clampString(account.accountName, 120, 'Account'),
+        isActive: Boolean(account.isActive),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      shouldCreate ? OperationType.CREATE : OperationType.UPDATE,
+      path
+    );
+  }
+}
+
+export async function deleteAccountFromFirestore(
+  userId: string,
+  accountId: string
+): Promise<void> {
+  const cleanUid = sanitizeId(userId);
+  const cleanId = sanitizeId(accountId);
+  const path = `workspaces/${cleanUid}/accounts/${cleanId}`;
+  try {
+    await deleteDoc(doc(db, 'workspaces', cleanUid, 'accounts', cleanId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function loadAccountsFromFirestore(
+  userId: string
+): Promise<AccountItem[]> {
+  const cleanUid = sanitizeId(userId);
+  const path = `workspaces/${cleanUid}/accounts`;
+  try {
+    const q = query(collection(db, 'workspaces', cleanUid, 'accounts'));
+    const snap = await getDocs(q);
+    const list: AccountItem[] = [];
+    snap.forEach((d) => {
+      const data = d.data();
+      list.push({
+        id: d.id,
+        accountName: data.accountName || '',
+        ownerId: data.ownerId || cleanUid,
+        isActive: data.isActive !== false,
+        createdAt:
+          data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        updatedAt:
+          data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+      });
+    });
+    return list;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
   }
 }

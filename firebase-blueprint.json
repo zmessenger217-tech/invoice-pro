@@ -322,6 +322,47 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "Account": {
+      "title": "Account",
+      "description": "Bank or wallet account used for recording partner and school payments.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the workspace owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "accountName": {
+          "type": "string",
+          "description": "Account or bank name.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Whether the account is active and selectable."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated."
+        }
+      },
+      "required": [
+        "ownerId",
+        "accountName",
+        "isActive",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -348,6 +389,12 @@
         "$ref": "#/entities/Partner"
       },
       "description": "Partners configured within the user's workspace."
+    },
+    "/workspaces/{userId}/accounts/{accountId}": {
+      "schema": {
+        "$ref": "#/entities/Account"
+      },
+      "description": "Bank and cash accounts configured within the user's workspace."
     }
   }
 }

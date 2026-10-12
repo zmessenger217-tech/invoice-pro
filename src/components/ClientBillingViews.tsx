@@ -27,12 +27,14 @@ import {
   formatCurrency,
   getCurrentMonthLabel,
   getDueDateForMonth,
+  getDynamicAvailableMonths,
   getIssueDateForMonth,
   getOrComputeMonthlyRecord,
   getPreviousMonthName,
   isClientInvoiceGenerated,
 } from '../data/initialData';
 import {
+  AccountItem,
   ActiveNavTab,
   ClientEntity,
   CompanyProfile,
@@ -48,6 +50,7 @@ interface ClientBillingViewsProps {
   term: CategoryTerminology;
   clients: ClientEntity[];
   partners?: PartnerItem[];
+  accounts?: AccountItem[];
   selectedMonth: string;
   setSelectedMonth: (m: string) => void;
   monthlyRevenue: number;
@@ -67,7 +70,9 @@ interface ClientBillingViewsProps {
     method: PaymentTransaction['method'],
     note: string,
     whatsappBillingType?: 'per_message' | 'per_month',
-    whatsappCharges?: number
+    whatsappCharges?: number,
+    paymentFromAccountId?: string,
+    paymentFromAccountName?: string
   ) => void;
   onGenerateInvoiceWithCharges: (
     clientId: string,
@@ -93,6 +98,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   term,
   clients,
   partners = [],
+  accounts = [],
   selectedMonth,
   setSelectedMonth,
   monthlyRevenue,
@@ -111,6 +117,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
 }) => {
   const currency = company.currency || 'Rs.';
   const activeClients = clients.filter((c) => c.enabled);
+  const activeAccounts = accounts.filter((a) => a.isActive !== false);
 
   // Batch Generation State
   const [showBatchModal, setShowBatchModal] = useState(false);
@@ -154,11 +161,25 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   // Check & Balance Filters
   const [cbSearch, setCbSearch] = useState('');
   const [cbStatusFilter, setCbStatusFilter] = useState<
-    'All' | 'Paid' | 'Partially Paid' | 'Unpaid'
+    'All' | 'Paid' | 'Partially Paid' | 'Unpaid' | 'With Dues'
   >('All');
   const [cbPeriodFilter, setCbPeriodFilter] = useState<
     'This Month' | 'Previous Month' | 'Custom Month' | 'Yearly'
   >('This Month');
+
+  const liveCurrentMonth = getCurrentMonthLabel();
+  const dynamicMonths = getDynamicAvailableMonths(selectedMonth);
+
+  // Keep Check & Balance period filter synced when real-time month advances or selectedMonth changes
+  useEffect(() => {
+    const currentNow = getCurrentMonthLabel();
+    const prevNow = getPreviousMonthName(currentNow);
+    if (selectedMonth === currentNow && cbPeriodFilter !== 'Yearly') {
+      setCbPeriodFilter('This Month');
+    } else if (selectedMonth === prevNow && cbPeriodFilter !== 'Yearly') {
+      setCbPeriodFilter('Previous Month');
+    }
+  }, [selectedMonth]);
 
   // Make Payment Modal State (Screen 7) — pre-filled with the school's saved charges & WhatsApp rate/messages
   const [paymentModalClient, setPaymentModalClient] =
@@ -345,11 +366,14 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     setModalChatbotCharges(rec.chatbotCharges);
     setPaymentInputAmount(String(rec.remainingDues || 0));
     const defaultBank =
+      activeAccounts[0]?.accountName ||
       company.qrCodes?.[0]?.bankName ||
       company.qrCodes?.[0]?.label ||
-      '';
+      'Cash Account';
     setSelectedBank(defaultBank);
-    setPaymentMethod(defaultBank ? 'Bank Transfer' : 'Bank Transfer');
+    setPaymentMethod(
+      defaultBank.toLowerCase().includes('cash') ? 'Cash' : 'Bank Transfer'
+    );
     setPaymentNote('');
   };
 
@@ -545,7 +569,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               return tot > 0 ? tot : sw + wa + cb;
             })
             .reduce((s, val) => s + val, 0);
-          return sum + (schoolsCut > 0 ? schoolsCut : p.billingMonthlyPayment || 0);
+          return sum + (schoolsCut > 0 ? schoolsCut : p.monthlyPayment || 0);
         }, 0)
       : ledgerRows.reduce((sum, { client: c, record: r }) => {
           const sw = Number(
@@ -571,7 +595,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       client.phone.toLowerCase().includes(cbSearch.toLowerCase()) ||
       record.invoiceNumber.toLowerCase().includes(cbSearch.toLowerCase());
     const matchesStatus =
-      cbStatusFilter === 'All' || record.status === cbStatusFilter;
+      cbStatusFilter === 'All' ||
+      record.status === cbStatusFilter ||
+      (cbStatusFilter === 'With Dues' && (record.status === 'Unpaid' || record.status === 'Partially Paid' || record.remainingDues > 0));
     return matchesSearch && matchesStatus;
   });
 
@@ -589,12 +615,18 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5">
+            {selectedMonth === liveCurrentMonth && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-700">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live Month
+              </span>
+            )}
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="px-3.5 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-800 focus:border-blue-600 focus:outline-none"
             >
-              {AVAILABLE_MONTHS.map((m) => (
+              {dynamicMonths.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
@@ -644,6 +676,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               <div className="text-[11px] text-slate-500 mt-1">
                 Out of {formatCurrency(totalAmountToBeCollected, currency)} total to be collected
               </div>
+              <div className="text-[11px] font-semibold text-amber-600 mt-1">
+                Total Dues: {formatCurrency(totalDues, currency)}
+              </div>
             </div>
             <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
               <TrendingUp className="w-5 h-5" />
@@ -663,6 +698,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
                 Out of {formatCurrency(totalPartnerPaymentCut, currency)} total partner payment cut
+              </div>
+              <div className="text-[11px] font-semibold text-amber-600 mt-1">
+                Partner Dues: {formatCurrency(Math.max(0, totalPartnerPaymentCut - partnerPayoutsTotal), currency)}
               </div>
               {monthlyExpenses > 0 && onResetMonthlyExpenses && (
                 <button
@@ -693,16 +731,30 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setCbStatusFilter('With Dues');
+              setActiveTab('check-balance');
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                setCbStatusFilter('With Dues');
+                setActiveTab('check-balance');
+              }
+            }}
+            className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between cursor-pointer hover:border-amber-400 hover:shadow-sm transition-all group"
+          >
             <div>
-              <div className="text-xs font-medium text-slate-500">
+              <div className="text-xs font-medium text-slate-500 group-hover:text-amber-700 transition-colors">
                 {term.plural} With Dues
               </div>
               <div className="text-2xl font-bold text-amber-600 font-mono tabular-nums mt-1.5">
                 {withDuesCount} / {activeClients.length}
               </div>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:bg-amber-100 transition-colors">
               <AlertCircle className="w-5 h-5" />
             </div>
           </div>
@@ -1394,7 +1446,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               }}
               className="px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-800 focus:border-blue-600 focus:outline-none"
             >
-              {AVAILABLE_MONTHS.map((m) => (
+              {dynamicMonths.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
@@ -1470,7 +1522,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
 
             <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
-              {(['All', 'Paid', 'Partially Paid', 'Unpaid'] as const).map(
+              {(['All', 'Paid', 'Partially Paid', 'Unpaid', 'With Dues'] as const).map(
                 (st) => (
                   <button
                     key={st}
@@ -1932,7 +1984,11 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                             <span className="text-slate-600 font-mono">
                               {tx.day ? `${tx.day}, ` : ''}
                               {tx.date} · {tx.billingMonth || selectedMonth}
-                              {tx.time ? ` · ${tx.time}` : ''} ({tx.method})
+                              {tx.time ? ` · ${tx.time}` : ''} (
+                              {tx.paymentFromAccountName || tx.bankName
+                                ? `${tx.paymentFromAccountName || tx.bankName} · `
+                                : ''}
+                              {tx.method})
                             </span>
                             <span className="font-mono font-bold text-emerald-700">
                               +{formatCurrency(tx.amount, currency)}
@@ -1947,13 +2003,12 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  const noteParts: string[] = [];
-                  if (selectedBank) {
-                    noteParts.push(`Bank: ${selectedBank}`);
-                  }
-                  if (paymentNote.trim()) {
-                    noteParts.push(paymentNote.trim());
-                  }
+                  const matchedAcc = activeAccounts.find(
+                    (a) => a.accountName === selectedBank || a.id === selectedBank
+                  );
+                  const resolvedAccountName =
+                    matchedAcc?.accountName || selectedBank || 'Cash Account';
+                  const resolvedAccountId = matchedAcc?.id;
                   const finalWhatsappCharges = isModalPerMonth
                     ? Number(modalWhatsappMonthlyCharges) || 0
                     : modalWhatsappTotal;
@@ -1976,9 +2031,11 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     modalChatbotCharges,
                     enteredPayNum,
                     paymentMethod,
-                    noteParts.join(' — '),
+                    paymentNote.trim(),
                     finalBillingType,
-                    finalWhatsappCharges
+                    finalWhatsappCharges,
+                    resolvedAccountId,
+                    resolvedAccountName
                   );
                   setPaymentModalClient(null);
                 }}
@@ -2017,75 +2074,63 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   />
                 </div>
 
-                {/* Bank Selection from Settings */}
+                {/* Payment From Account Selection */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                      Bank / Payment Destination (from Settings)
-                    </label>
-                    <select
-                      value={selectedBank}
-                      onChange={(e) => {
-                        const b = e.target.value;
-                        setSelectedBank(b);
-                        if (b === 'Cash') {
-                          setPaymentMethod('Cash');
-                        } else if (b === 'Cheque') {
-                          setPaymentMethod('Cheque');
-                        } else if (
-                          b.toLowerCase().includes('jazzcash') ||
-                          b.toLowerCase().includes('easypaisa') ||
-                          b.toLowerCase().includes('raast')
-                        ) {
-                          setPaymentMethod('Online / QR');
-                        } else {
-                          setPaymentMethod('Bank Transfer');
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white font-medium"
-                    >
-                      {company.qrCodes && company.qrCodes.length > 0 ? (
-                        <>
-                          {company.qrCodes.map((q, idx) => (
-                            <option
-                              key={q.id || idx}
-                              value={q.bankName || q.label}
-                            >
-                              {q.bankName || q.label}
-                            </option>
-                          ))}
-                          <option value="Cash">Cash</option>
-                          <option value="Cheque">Cheque</option>
-                          <option value="Other Bank">Other Bank</option>
-                        </>
-                      ) : (
-                        <>
-                          <option value="Primary Bank">Primary Bank Account</option>
-                          <option value="Cash">Cash</option>
-                          <option value="Online / QR">Online / QR</option>
-                          <option value="Cheque">Cheque</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-
                   <div>
                     <label className="block text-[11px] font-medium text-slate-500 mb-1">
                       Payment Method
                     </label>
                     <select
                       value={paymentMethod}
-                      onChange={(e) =>
-                        setPaymentMethod(
-                          e.target.value as PaymentTransaction['method']
-                        )
-                      }
+                      onChange={(e) => {
+                        const m = e.target.value as PaymentTransaction['method'];
+                        setPaymentMethod(m);
+                        if (m === 'Cash') {
+                          setSelectedBank('');
+                        }
+                      }}
                       className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white"
                     >
                       <option value="Bank Transfer">Bank Transfer</option>
                       <option value="Cash">Cash</option>
                       <option value="Online / QR">Online / QR</option>
                       <option value="Cheque">Cheque</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-700">
+                        Payment From Account {paymentMethod !== 'Cash' && <span className="text-rose-500">*</span>}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentModalClient(null);
+                          setActiveTab('accounts');
+                        }}
+                        className="text-[10px] text-blue-600 hover:underline font-semibold"
+                      >
+                        + Manage Accounts
+                      </button>
+                    </div>
+                    <select
+                      required={paymentMethod !== 'Cash'}
+                      value={selectedBank}
+                      onChange={(e) => {
+                        const b = e.target.value;
+                        setSelectedBank(b);
+                      }}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                    >
+                      <option value="">
+                        {paymentMethod === 'Cash' ? 'None (Cash Payment)' : 'Select Account'}
+                      </option>
+                      {activeAccounts.map((acc) => (
+                        <option key={acc.id} value={acc.accountName}>
+                          {acc.accountName}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -2098,7 +2143,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                     type="text"
                     value={paymentNote}
                     onChange={(e) => setPaymentNote(e.target.value)}
-                    placeholder="e.g. Trx ID #98234, Deposited by Admin"
+                    placeholder="e.g. Monthly school payment, Trx ID #98234"
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200"
                   />
                 </div>
@@ -2162,6 +2207,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           <th className="py-2.5 px-3">Date</th>
                           <th className="py-2.5 px-3">Month</th>
                           <th className="py-2.5 px-3">Time</th>
+                          <th className="py-2.5 px-3">Paid From Account</th>
                           <th className="py-2.5 px-3">Method / Note</th>
                           <th className="py-2.5 px-3 text-right">Amount Paid</th>
                         </tr>
@@ -2185,6 +2231,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                               </td>
                               <td className="py-2.5 px-3 font-mono text-blue-700 font-medium">
                                 {p.time || '—'}
+                              </td>
+                              <td className="py-2.5 px-3 font-semibold text-slate-800">
+                                {p.paymentFromAccountName || p.bankName || '—'}
                               </td>
                               <td className="py-2.5 px-3 text-slate-600">
                                 {p.method}
@@ -2452,7 +2501,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="w-full px-3.5 py-2.5 text-xs font-medium rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-600 focus:outline-none"
             >
-              {AVAILABLE_MONTHS.map((m) => (
+              {dynamicMonths.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>

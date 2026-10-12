@@ -1,4 +1,5 @@
 import {
+  AccountItem,
   CategoryTerminology,
   ClientEntity,
   CompanyProfile,
@@ -38,6 +39,20 @@ export function getCurrentYear(): number {
   return new Date().getFullYear();
 }
 
+export function parseMonthLabel(monthStr: string): {
+  monthIndex: number;
+  year: number;
+  serial: number;
+} | null {
+  if (!monthStr) return null;
+  const parts = monthStr.trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  const mIdx = MONTH_NAMES.indexOf(parts[0]);
+  const year = parseInt(parts[parts.length - 1], 10);
+  if (mIdx < 0 || isNaN(year) || year < 2000 || year > 2100) return null;
+  return { monthIndex: mIdx, year, serial: year * 12 + mIdx };
+}
+
 export function getCurrentYearMonths(year?: number): string[] {
   const y = typeof year === 'number' && !isNaN(year) ? year : new Date().getFullYear();
   return MONTH_NAMES.map((m) => `${m} ${y}`);
@@ -48,6 +63,20 @@ export function getCurrentYearMonths(year?: number): string[] {
  * Automatically updates every year.
  */
 export const AVAILABLE_MONTHS: string[] = getCurrentYearMonths();
+
+export function getDynamicAvailableMonths(selectedMonth?: string): string[] {
+  const currentYear = new Date().getFullYear();
+  const baseMonths = getCurrentYearMonths(currentYear);
+  if (!selectedMonth) return baseMonths;
+  const parsed = parseMonthLabel(selectedMonth);
+  if (parsed && parsed.year !== currentYear) {
+    const selectedYearMonths = getCurrentYearMonths(parsed.year);
+    return parsed.year < currentYear
+      ? [...selectedYearMonths, ...baseMonths]
+      : [...baseMonths, ...selectedYearMonths];
+  }
+  return baseMonths;
+}
 
 export function getCurrentMonthLabel(): string {
   const now = new Date();
@@ -247,13 +276,38 @@ export function formatPaymentTimestamp(tx: {
   return parts.join(', ');
 }
 
+function findEarliestSavedMonthSerial(client: ClientEntity): number | null {
+  const keys = Object.keys(client.monthlyRecords || {});
+  let minSerial: number | null = null;
+  for (const k of keys) {
+    const parsed = parseMonthLabel(k);
+    if (parsed && (minSerial === null || parsed.serial < minSerial)) {
+      minSerial = parsed.serial;
+    }
+  }
+  return minSerial;
+}
+
 export function getOrComputeMonthlyRecord(
   client: ClientEntity,
-  month: string
+  month: string,
+  depth = 0
 ): MonthlyLedgerRecord {
-  const existing = client.monthlyRecords[month];
+  const existing = client.monthlyRecords?.[month];
   const prevMonth = getPreviousMonthName(month);
-  const prevRecord = client.monthlyRecords[prevMonth];
+  const prevParsed = parseMonthLabel(prevMonth);
+  const earliestSerial = findEarliestSavedMonthSerial(client);
+
+  const shouldComputePrevRecursively =
+    depth < 24 &&
+    (Boolean(client.monthlyRecords?.[prevMonth]) ||
+      (prevParsed !== null &&
+        earliestSerial !== null &&
+        prevParsed.serial >= earliestSerial));
+
+  const prevRecord = shouldComputePrevRecursively
+    ? getOrComputeMonthlyRecord(client, prevMonth, depth + 1)
+    : client.monthlyRecords?.[prevMonth];
 
   // Carry forward unpaid dues from previous month if present
   const carriedDues = prevRecord
@@ -466,6 +520,8 @@ export const INITIAL_COMPANY_PROFILE: CompanyProfile = {
 export const INITIAL_CLIENTS: ClientEntity[] = [];
 
 export const INITIAL_EXPENSES: ExpenseItem[] = [];
+
+export const INITIAL_ACCOUNTS: AccountItem[] = [];
 
 export const INITIAL_PARTNERS: PartnerItem[] = [
   {

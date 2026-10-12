@@ -34,8 +34,10 @@ service cloud.firestore {
     }
 
     function isWorkspaceOwner(userId) {
-      return exists(/databases/$(database)/documents/workspaces/$(userId)) &&
-        get(/databases/$(database)/documents/workspaces/$(userId)).data.ownerId == request.auth.uid;
+      return request.auth.uid == userId || (
+        exists(/databases/$(database)/documents/workspaces/$(userId)) &&
+        get(/databases/$(database)/documents/workspaces/$(userId)).data.ownerId == request.auth.uid
+      );
     }
 
     // 3. Entity Validation Blueprints (Synced verbatim with firebase-blueprint.json)
@@ -144,6 +146,21 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidAccount(data) {
+      return data.keys().hasAll([
+          'ownerId', 'accountName', 'isActive', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'accountName', 'isActive', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.accountName is string && data.accountName.size() >= 1 && data.accountName.size() <= 120 &&
+        data.isActive is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     // 4. Collection Match Blocks
     match /workspaces/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
@@ -175,7 +192,7 @@ service cloud.firestore {
       // Subcollection: Clients
       match /clients/{clientId} {
         allow get: if isSignedIn() && isValidId(userId) && isValidId(clientId) && request.auth.uid == userId && isWorkspaceOwner(userId);
-        allow list: if isSignedIn() && request.auth.uid == userId && existing().ownerId == request.auth.uid;
+        allow list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isWorkspaceOwner(userId);
 
         allow create: if isVerified() &&
           isValidId(userId) &&
@@ -212,7 +229,7 @@ service cloud.firestore {
       // Subcollection: Expenses
       match /expenses/{expenseId} {
         allow get: if isSignedIn() && isValidId(userId) && isValidId(expenseId) && request.auth.uid == userId && isWorkspaceOwner(userId);
-        allow list: if isSignedIn() && request.auth.uid == userId && existing().ownerId == request.auth.uid;
+        allow list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isWorkspaceOwner(userId);
 
         allow create: if isVerified() &&
           isValidId(userId) &&
@@ -245,7 +262,7 @@ service cloud.firestore {
       // Subcollection: Partners
       match /partners/{partnerId} {
         allow get: if isSignedIn() && isValidId(userId) && isValidId(partnerId) && request.auth.uid == userId && isWorkspaceOwner(userId);
-        allow list: if isSignedIn() && request.auth.uid == userId && existing().ownerId == request.auth.uid;
+        allow list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isWorkspaceOwner(userId);
 
         allow create: if isVerified() &&
           isValidId(userId) &&
@@ -273,6 +290,39 @@ service cloud.firestore {
           isWorkspaceOwner(userId);
 
         allow delete: if isVerified() && isValidId(userId) && isValidId(partnerId) && request.auth.uid == userId && existing().ownerId == request.auth.uid && isWorkspaceOwner(userId);
+      }
+
+      // Subcollection: Accounts
+      match /accounts/{accountId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(accountId) && request.auth.uid == userId && isWorkspaceOwner(userId);
+        allow list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isWorkspaceOwner(userId);
+
+        allow create: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(accountId) &&
+          request.auth.uid == userId &&
+          isValidAccount(incoming()) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isWorkspaceOwner(userId);
+
+        allow update: if isVerified() &&
+          isValidAccount(incoming()) &&
+          isValidId(userId) &&
+          isValidId(accountId) &&
+          request.auth.uid == userId &&
+          existing().ownerId == request.auth.uid &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'accountName', 'isActive', 'updatedAt'
+            ])
+          ) &&
+          isWorkspaceOwner(userId);
+
+        allow delete: if isVerified() && isValidId(userId) && isValidId(accountId) && request.auth.uid == userId && existing().ownerId == request.auth.uid && isWorkspaceOwner(userId);
       }
     }
   }
