@@ -77,6 +77,7 @@ interface FinanceAndSettingsViewsProps {
       note?: string;
       paymentFromAccountId?: string;
       paymentFromAccountName?: string;
+      bankName?: string;
     }
   ) => void;
   onDeletePartner: (partnerId: string) => void;
@@ -496,11 +497,13 @@ export const FinanceAndSettingsViews: React.FC<
                   className="w-full px-3.5 py-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:border-blue-600 focus:outline-none"
                 >
                   <option value="">Select Partner</option>
-                  {partners.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({formatCurrency(p.monthlyPayment, currency)})
-                    </option>
-                  ))}
+                  {[...partners]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({formatCurrency(p.monthlyPayment, currency)})
+                      </option>
+                    ))}
                 </select>
               </div>
 
@@ -707,7 +710,8 @@ export const FinanceAndSettingsViews: React.FC<
             partnerNote: rec.partnerNote || c.partnerNote,
           };
         })
-        .filter((item) => item.isLinked);
+        .filter((item) => item.isLinked)
+        .sort((a, b) => a.client.name.localeCompare(b.client.name));
     };
 
     // Aggregate totals across all partners for this month
@@ -1027,7 +1031,9 @@ export const FinanceAndSettingsViews: React.FC<
                 <button
                   type="button"
                   onClick={() => {
-                    const allPartnerData = partners.map((p) => {
+                    const allPartnerData = [...partners]
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((p) => {
                       const schools = getPartnerSchoolsData(p.id);
                       const totalSoftware = schools.reduce((sum, s) => sum + s.softwarePay, 0);
                       const totalWhatsapp = schools.reduce((sum, s) => sum + s.whatsappPay, 0);
@@ -1072,7 +1078,9 @@ export const FinanceAndSettingsViews: React.FC<
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {partners.map((p) => {
+              {[...partners]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((p) => {
                 const partnerSchools = getPartnerSchoolsData(p.id);
                 const schoolPayoutsSum = partnerSchools.reduce(
                   (sum, s) => sum + s.totalPay,
@@ -2591,9 +2599,11 @@ export const FinanceAndSettingsViews: React.FC<
 
   // 12. ENABLE / DISABLE CLIENT VIEW (Matches Screen 12)
   if (activeTab === 'enable-disable') {
-    const filteredClients = clients.filter((c) =>
-      c.name.toLowerCase().includes(enableSearch.toLowerCase())
-    );
+    const filteredClients = clients
+      .filter((c) =>
+        c.name.toLowerCase().includes(enableSearch.toLowerCase())
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     return (
       <div className="space-y-6">

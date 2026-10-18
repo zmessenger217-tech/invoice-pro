@@ -122,7 +122,7 @@ export const InvoiceLogView: React.FC<InvoiceLogViewProps> = ({
       (item.month || '').toLowerCase().includes(q) ||
       (item.clientPhone || '').toLowerCase().includes(q)
     );
-  });
+  }).sort((a, b) => (a.clientName || '').localeCompare(b.clientName || ''));
 
   // Calculate totals for currently filtered logs
   const totalInvoices = filteredLogs.length;

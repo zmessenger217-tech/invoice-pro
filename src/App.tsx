@@ -818,14 +818,6 @@ export default function App() {
     });
   }, [expenses, partners]);
 
-  const monthlyExpenses = useMemo(
-    () =>
-      activeExpenses
-        .filter((e) => e.month === selectedMonth)
-        .reduce((sum, e) => sum + e.amount, 0),
-    [activeExpenses, selectedMonth]
-  );
-
   const partnerPayoutsTotal = useMemo(
     () =>
       partners.reduce((sum, p) => {
@@ -884,6 +876,8 @@ export default function App() {
       }, 0),
     [partners, activeClients, selectedMonth]
   );
+
+  const monthlyExpenses = partnerPayoutsTotal;
 
   const handleResetMonthlyExpenses = async () => {
     setExpenses([]);
@@ -2100,6 +2094,11 @@ export default function App() {
       mode?: 'add' | 'set';
       method?: PaymentTransaction['method'];
       note?: string;
+      paymentFromAccountId?: string;
+      paymentFromAccountName?: string;
+      accountId?: string;
+      accountName?: string;
+      bankName?: string;
     }
   ) => {
     const target = partners.find((p) => p.id === partnerId);
@@ -2176,9 +2175,9 @@ export default function App() {
             method: options?.method || 'Bank Transfer',
             note: options?.note?.trim() || undefined,
             billingMonth: month,
-            paymentFromAccountId: options?.accountId,
-            paymentFromAccountName: options?.accountName,
-            bankName: options?.bankName,
+            paymentFromAccountId: options?.paymentFromAccountId || options?.accountId,
+            paymentFromAccountName: options?.paymentFromAccountName || options?.accountName,
+            bankName: options?.bankName || options?.paymentFromAccountName || options?.accountName,
           }
         : null;
 

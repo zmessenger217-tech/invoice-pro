@@ -340,9 +340,11 @@ export const AccountManagementView: React.FC<AccountManagementViewProps> = ({
     return stats;
   }, [allPaymentHistory]);
 
-  const filteredAccounts = accounts.filter((acc) =>
-    acc.accountName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredAccounts = accounts
+    .filter((acc) =>
+      acc.accountName.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .sort((a, b) => a.accountName.localeCompare(b.accountName));
 
   return (
     <div className="space-y-6">

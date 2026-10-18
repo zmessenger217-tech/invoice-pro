@@ -117,7 +117,8 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   onGenerateAllMonthlyInvoices,
 }) => {
   const currency = company.currency || 'Rs.';
-  const activeClients = clients.filter((c) => c.enabled);
+  const activeClients = clients.filter((c) => c.enabled).sort((a, b) => a.name.localeCompare(b.name));
+  const sortedPartners = [...partners].sort((a, b) => a.name.localeCompare(b.name));
   const activeAccounts = accounts.filter((a) => a.isActive !== false);
 
   // Batch Generation State
@@ -1111,7 +1112,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                         className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white focus:border-indigo-600 focus:outline-none font-medium"
                       >
                         <option value="">-- Choose Partner --</option>
-                        {partners.map((p) => (
+                        {sortedPartners.map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.name} ({p.phone})
                           </option>
@@ -1274,7 +1275,9 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           ) : (
             <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto">
-              {clients.map((c) => {
+              {[...clients]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((c) => {
                 const monthlyTotal =
                   (c.softwareEnabled ? c.softwareCharges : 0) +
                   (c.whatsappEnabled
@@ -2492,11 +2495,13 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               {clients.length === 0 ? (
                 <option value="">No {term.plural} Added Yet</option>
               ) : (
-                clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {!c.enabled ? '(Disabled)' : ''}
-                  </option>
-                ))
+                [...clients]
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} {!c.enabled ? '(Disabled)' : ''}
+                    </option>
+                  ))
               )}
             </select>
           </div>

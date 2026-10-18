@@ -175,13 +175,15 @@ export function buildPartnerPdfInstance(options: PartnerReportOptions): jsPDF {
   });
 
   // Filter to ONLY schools that actually contribute a cut to this partner
-  const contributingSchools = partnerSchools.filter(
-    (s) =>
-      (Number(s.totalPay) || 0) > 0 ||
-      (Number(s.softwarePay) || 0) > 0 ||
-      (Number(s.whatsappPay) || 0) > 0 ||
-      (Number(s.chatbotPay) || 0) > 0
-  );
+  const contributingSchools = partnerSchools
+    .filter(
+      (s) =>
+        (Number(s.totalPay) || 0) > 0 ||
+        (Number(s.softwarePay) || 0) > 0 ||
+        (Number(s.whatsappPay) || 0) > 0 ||
+        (Number(s.chatbotPay) || 0) > 0
+    )
+    .sort((a, b) => a.client.name.localeCompare(b.client.name));
 
   // Calculate Aggregates for this partner
   const totalSoftwareCut = contributingSchools.reduce((sum, s) => sum + s.softwarePay, 0);
@@ -820,6 +822,10 @@ export function buildAllPartnersPdfInstance(options: AllPartnersReportOptions): 
     currency = company.currency || 'Rs.',
   } = options;
 
+  const sortedAllPartnerData = [...allPartnerData].sort((a, b) =>
+    a.partner.name.localeCompare(b.partner.name)
+  );
+
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -860,10 +866,10 @@ export function buildAllPartnersPdfInstance(options: AllPartnersReportOptions): 
   pdf.text(`Month: ${selectedMonth}`, pageWidth - margin, 24, { align: 'right' });
 
   // Totals
-  const grandSoftware = allPartnerData.reduce((sum, p) => sum + p.totalSoftware, 0);
-  const grandWhatsapp = allPartnerData.reduce((sum, p) => sum + p.totalWhatsapp, 0);
-  const grandChatbot = allPartnerData.reduce((sum, p) => sum + p.totalChatbot, 0);
-  const grandPayout = allPartnerData.reduce((sum, p) => sum + p.totalPayout, 0);
+  const grandSoftware = sortedAllPartnerData.reduce((sum, p) => sum + p.totalSoftware, 0);
+  const grandWhatsapp = sortedAllPartnerData.reduce((sum, p) => sum + p.totalWhatsapp, 0);
+  const grandChatbot = sortedAllPartnerData.reduce((sum, p) => sum + p.totalChatbot, 0);
+  const grandPayout = sortedAllPartnerData.reduce((sum, p) => sum + p.totalPayout, 0);
 
   // Top Summary Cards
   let currY = 48;
@@ -884,7 +890,7 @@ export function buildAllPartnersPdfInstance(options: AllPartnersReportOptions): 
   pdf.setTextColor(99, 102, 241);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(6.5);
-  pdf.text(`${allPartnerData.length} Partners Total`, margin + 3, currY + 15.5);
+  pdf.text(`${sortedAllPartnerData.length} Partners Total`, margin + 3, currY + 15.5);
 
   // 2. Software Cut Card
   const c2X = margin + cardW + cardGap;
@@ -968,7 +974,7 @@ export function buildAllPartnersPdfInstance(options: AllPartnersReportOptions): 
 
   currY += 8;
 
-  allPartnerData.forEach((item, idx) => {
+  sortedAllPartnerData.forEach((item, idx) => {
     const isEven = idx % 2 === 0;
     const paidRec = item.partner.paidMonths?.[selectedMonth];
     const lastTx =

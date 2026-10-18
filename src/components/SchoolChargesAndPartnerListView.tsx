@@ -130,7 +130,10 @@ export const SchoolChargesAndPartnerListView: React.FC<
         schoolPayments: rec.payments || [],
         partnerPaidRec: partnerObj?.paidMonths?.[selectedMonth],
       };
-    });
+    })
+    .sort((a, b) => a.client.name.localeCompare(b.client.name));
+
+  const sortedPartners = [...partners].sort((a, b) => a.name.localeCompare(b.name));
 
   // Filter rows by search and partner dropdown
   const filteredRows = allRows.filter((row) => {
@@ -286,7 +289,8 @@ export const SchoolChargesAndPartnerListView: React.FC<
           partnerNote: rec.partnerNote || c.partnerNote,
         };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => a.client.name.localeCompare(b.client.name));
   };
 
   const handleDownloadPartnerReport = (targetPartnerId?: string) => {
@@ -319,7 +323,7 @@ export const SchoolChargesAndPartnerListView: React.FC<
     }
 
     // Otherwise download all partners summary report
-    const allPartnerData = partners.map((p) => {
+    const allPartnerData = sortedPartners.map((p) => {
       const schools = getLinkedSchoolsForPartner(p);
 
       const totalSoftware = schools.reduce((sum, s) => sum + s.softwarePay, 0);
@@ -555,7 +559,7 @@ export const SchoolChargesAndPartnerListView: React.FC<
             <option value="all">All {term.plural}</option>
             <option value="partner-only">Partner-Linked {term.plural} Only</option>
             <option value="no-partner">No Partner (Direct Only)</option>
-            {partners.map((p) => (
+            {sortedPartners.map((p) => (
               <option key={p.id} value={p.id}>
                 Partner: {p.name}
               </option>

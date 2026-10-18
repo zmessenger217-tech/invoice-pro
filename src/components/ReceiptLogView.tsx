@@ -66,7 +66,9 @@ export const ReceiptLogView: React.FC<ReceiptLogViewProps> = ({
   } | null>(null);
   const [copiedText, setCopiedText] = useState(false);
 
-  const monthReceipts = receiptLog.filter((r) => r.month === selectedMonth);
+  const monthReceipts = receiptLog
+    .filter((r) => r.month === selectedMonth)
+    .sort((a, b) => a.clientName.localeCompare(b.clientName));
 
   const filteredReceipts = monthReceipts.filter((r) => {
     const q = searchTerm.toLowerCase().trim();

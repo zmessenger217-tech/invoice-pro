@@ -338,11 +338,13 @@ export const InvoicePreviewAndEditor: React.FC<
               {clients.length === 0 ? (
                 <option value="">No {term.plural} Added Yet</option>
               ) : (
-                clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {!c.enabled ? '(Disabled)' : ''}
-                  </option>
-                ))
+                [...clients]
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} {!c.enabled ? '(Disabled)' : ''}
+                    </option>
+                  ))
               )}
             </select>
           </div>
