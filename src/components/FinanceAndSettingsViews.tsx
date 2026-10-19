@@ -26,6 +26,7 @@ import {
   formatCurrency,
   getIssueDateForMonth,
   getOrComputeMonthlyRecord,
+  isPaymentAfterDueDate,
 } from '../data/initialData';
 import { compressImageDataUrl } from '../firebase';
 import {
@@ -45,6 +46,8 @@ import {
   downloadAllPartnersReportPdf,
   downloadPartnerReportPdf,
 } from '../utils/partnerReportPdf';
+import { downloadFinancialReportPdf } from '../utils/financialReportPdf';
+import { downloadSchoolReportPdf } from '../utils/schoolReportPdf';
 import { resolveActiveLogoUrl } from '../utils/usePWAInstall';
 import { RevenueExpenseChart } from './RevenueExpenseChart';
 
@@ -190,6 +193,7 @@ export const FinanceAndSettingsViews: React.FC<
 
   // Settings State
   const [compName, setCompName] = useState(company.name);
+  const [compOwnerName, setCompOwnerName] = useState(company.ownerName || '');
   const [compTagline, setCompTagline] = useState(company.tagline);
   const [compPhone, setCompPhone] = useState(company.phone);
   const [compEmail, setCompEmail] = useState(company.email);
@@ -259,6 +263,7 @@ export const FinanceAndSettingsViews: React.FC<
   // Sync settings form state whenever company profile updates from Firestore or Invoice Editor
   useEffect(() => {
     setCompName(company.name);
+    setCompOwnerName(company.ownerName || '');
     setCompTagline(company.tagline);
     setCompPhone(company.phone);
     setCompEmail(company.email);
@@ -2446,12 +2451,78 @@ export const FinanceAndSettingsViews: React.FC<
 
   // 11. MONTHLY & YEARLY FINANCE REPORT (Matches Screen 11)
   if (activeTab === 'finance-report') {
-    const scale = reportScope === 'Year' ? 12 : 1;
-    const scaledRevenue = monthlyRevenue * scale;
-    const scaledPartners = partnerPayoutsTotal * scale;
-    const scaledCollected = totalCollected * scale;
-    const scaledDues = totalOutstandingDues * scale;
-    const scaledNetBalance = scaledRevenue - scaledPartners;
+    const isYearScope = reportScope === 'Year';
+
+    const calculateMonthlyFinancialRow = (m: string) => {
+      const activeClients = clients.filter((c) => c.enabled);
+      const toBeCollected = activeClients.reduce(
+        (sum, c) => sum + getOrComputeMonthlyRecord(c, m).totalAmount,
+        0
+      );
+      const collected = activeClients.reduce(
+        (sum, c) => sum + getOrComputeMonthlyRecord(c, m).amountPaid,
+        0
+      );
+      const dues = activeClients.reduce(
+        (sum, c) => sum + getOrComputeMonthlyRecord(c, m).remainingDues,
+        0
+      );
+      const partnerExp = partners.reduce((sum, p) => {
+        const pRec = p.paidMonths?.[m];
+        if (pRec?.amountPaid !== undefined && Number(pRec.amountPaid) > 0) {
+          return sum + Number(pRec.amountPaid);
+        }
+        if (pRec?.paid) {
+          return sum + computePartnerPayoutForMonth(p, m);
+        }
+        return sum;
+      }, 0);
+      const directExp = expenses
+        .filter((e) => e.month === m || e.date?.startsWith(m))
+        .reduce((sum, e) => sum + e.amount, 0);
+      const totalExp = partnerExp + directExp;
+      const netBalance = collected - totalExp;
+
+      return {
+        month: m,
+        toBeCollected,
+        collected,
+        expenses: totalExp,
+        dues,
+        netBalance,
+        rate:
+          toBeCollected > 0
+            ? Math.round((collected / toBeCollected) * 100)
+            : 0,
+      };
+    };
+
+    // Filter out completely empty future/unbilled months to strictly avoid showing projected/expected numbers
+    const allMonthlyRows = AVAILABLE_MONTHS.map(calculateMonthlyFinancialRow);
+    const realizedMonthlyRows = allMonthlyRows.filter(
+      (r) =>
+        r.toBeCollected > 0 ||
+        r.collected > 0 ||
+        r.expenses > 0 ||
+        r.dues > 0 ||
+        r.month === selectedMonth
+    );
+
+    const activeSelectedRow = calculateMonthlyFinancialRow(selectedMonth);
+
+    const displayToBeCollected = isYearScope
+      ? realizedMonthlyRows.reduce((sum, r) => sum + r.toBeCollected, 0)
+      : activeSelectedRow.toBeCollected;
+    const displayCollected = isYearScope
+      ? realizedMonthlyRows.reduce((sum, r) => sum + r.collected, 0)
+      : activeSelectedRow.collected;
+    const displayExpenses = isYearScope
+      ? realizedMonthlyRows.reduce((sum, r) => sum + r.expenses, 0)
+      : activeSelectedRow.expenses;
+    const displayDues = isYearScope
+      ? realizedMonthlyRows.reduce((sum, r) => sum + r.dues, 0)
+      : activeSelectedRow.dues;
+    const displayNetBalance = displayCollected - displayExpenses;
 
     return (
       <div className="space-y-6">
@@ -2459,7 +2530,7 @@ export const FinanceAndSettingsViews: React.FC<
           <div>
             <h1 className="text-xl font-bold text-slate-900">Finance Report</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Comprehensive monthly &amp; yearly financial breakdown
+              Comprehensive monthly &amp; yearly realized financial ledger and revenue reports
             </p>
           </div>
 
@@ -2476,6 +2547,25 @@ export const FinanceAndSettingsViews: React.FC<
               <option value="Year">Full Year (2026)</option>
               <option value="Custom Date Range">Custom Date Range</option>
             </select>
+            <button
+              onClick={() =>
+                downloadFinancialReportPdf({
+                  company,
+                  selectedMonth,
+                  reportScope,
+                  currency,
+                  totalToBeCollected: displayToBeCollected,
+                  totalCollected: displayCollected,
+                  totalExpenses: displayExpenses,
+                  totalDues: displayDues,
+                  monthlyBreakdown: realizedMonthlyRows,
+                })
+              }
+              className="px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download {isYearScope ? 'Yearly' : 'Monthly'} PDF Report
+            </button>
 
             {reportScope === 'Specific Month' && (
               <select
@@ -2516,16 +2606,25 @@ export const FinanceAndSettingsViews: React.FC<
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <div className="text-xs font-medium text-slate-500">
-              Total Revenue
+              Total To Be Collected {isYearScope ? '(Full Year)' : `(${selectedMonth})`}
             </div>
-            <div className="text-xl sm:text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledRevenue, currency)}{' '}
-              <span className="text-sm font-semibold text-slate-400">
-                / {formatCurrency(totalAmountToBeCollected * scale, currency)}
-              </span>
+            <div className="text-xl sm:text-2xl font-bold text-slate-900 font-mono tabular-nums mt-1.5">
+              {formatCurrency(displayToBeCollected, currency)}
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
-              Out of {formatCurrency(totalAmountToBeCollected * scale, currency)} total to be collected
+              Sum of all client bills and carried forward balances
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="text-xs font-medium text-slate-500">
+              Amount Collected (Payments Received)
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
+              {formatCurrency(displayCollected, currency)}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">
+              Realized payments received from schools
             </div>
           </div>
 
@@ -2534,53 +2633,256 @@ export const FinanceAndSettingsViews: React.FC<
               Partner Payments (Monthly Expenses)
             </div>
             <div className="text-xl sm:text-2xl font-bold text-blue-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledPartners, currency)}{' '}
-              <span className="text-sm font-semibold text-slate-400">
-                / {formatCurrency(totalAllPartnersCut * scale, currency)}
-              </span>
+              {formatCurrency(displayExpenses, currency)}
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
-              Out of {formatCurrency(totalAllPartnersCut * scale, currency)} total partner payment cut
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-5">
-            <div className="text-xs font-medium text-slate-600">
-              Total Revenue After Partner Payments
-            </div>
-            <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledNetBalance, currency)}
-            </div>
-            <div className="text-[11px] text-slate-500 mt-1">
-              Total revenue after giving partner payments
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="text-xs font-medium text-slate-500">
-              Amount Collected
-            </div>
-            <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledCollected, currency)}
+              Realized payouts disbursed to partners and operating expenses
             </div>
           </div>
 
           <div className="bg-white rounded-xl border border-rose-200 bg-rose-50/20 p-5">
             <div className="text-xs font-medium text-slate-600">
-              Outstanding Dues
+              Outstanding Dues {isYearScope ? '(Current Outstanding)' : `(${selectedMonth})`}
             </div>
             <div className="text-2xl font-bold text-rose-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledDues, currency)}
+              {formatCurrency(displayDues, currency)}
+            </div>
+            <div className="text-[11px] text-rose-600/80 mt-1">
+              Unpaid balances remaining to be recovered
             </div>
           </div>
 
           <div className="bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 p-5">
             <div className="text-xs font-medium text-slate-600">
-              Net Balance
+              Net Balance (Collected - Expenses)
             </div>
             <div className="text-2xl font-bold text-emerald-600 font-mono tabular-nums mt-1.5">
-              {formatCurrency(scaledNetBalance, currency)}
+              {formatCurrency(displayNetBalance, currency)}
             </div>
+            <div className="text-[11px] text-slate-500 mt-1">
+              Net operating profit after partner distributions
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="text-xs font-medium text-slate-500">
+              Collection Efficiency
+            </div>
+            <div className="text-2xl font-bold text-slate-900 font-mono tabular-nums mt-1.5">
+              {displayToBeCollected > 0
+                ? `${Math.round((displayCollected / displayToBeCollected) * 100)}%`
+                : '100%'}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">
+              Ratio of payments collected vs total expected
+            </div>
+          </div>
+        </div>
+
+        {/* Realized Monthly Revenue & Dues Ledger Table */}
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+          <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                Monthly Realized Revenue &amp; Dues Breakdown
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Detailed month-by-month accounting of amounts to be collected, payments received, partner payouts, and dues (excluding unbilled future months)
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                downloadFinancialReportPdf({
+                  company,
+                  selectedMonth,
+                  reportScope: 'Year',
+                  currency,
+                  totalToBeCollected: displayToBeCollected,
+                  totalCollected: displayCollected,
+                  totalExpenses: displayExpenses,
+                  totalDues: displayDues,
+                  monthlyBreakdown: realizedMonthlyRows,
+                })
+              }
+              className="px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg flex items-center gap-1.5 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download All Months PDF
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                  <th className="py-3 px-4">Billing Month</th>
+                  <th className="py-3 px-4 text-right">To Collect</th>
+                  <th className="py-3 px-4 text-right">Collected (Received)</th>
+                  <th className="py-3 px-4 text-right">Expenses (Partner Payouts)</th>
+                  <th className="py-3 px-4 text-right">Remaining Dues</th>
+                  <th className="py-3 px-4 text-right">Net Balance</th>
+                  <th className="py-3 px-4 text-center">Collection %</th>
+                  <th className="py-3 px-4 text-center">PDF</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {realizedMonthlyRows.map((row) => {
+                  const isCurrent = row.month === selectedMonth;
+                  return (
+                    <tr
+                      key={row.month}
+                      className={`hover:bg-slate-50/80 transition-colors ${
+                        isCurrent ? 'bg-blue-50/30' : ''
+                      }`}
+                    >
+                      <td className="py-3 px-4 font-semibold text-slate-900 flex items-center gap-2">
+                        <span>{row.month}</span>
+                        {isCurrent && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                            Selected
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-medium text-slate-800">
+                        {formatCurrency(row.toBeCollected, currency)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">
+                        {formatCurrency(row.collected, currency)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-medium text-blue-600">
+                        {formatCurrency(row.expenses, currency)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-rose-600">
+                        {row.dues > 0 ? formatCurrency(row.dues, currency) : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-emerald-700">
+                        {formatCurrency(row.netBalance, currency)}
+                      </td>
+                      <td className="py-3 px-4 text-center font-mono">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
+                            row.rate >= 100
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : row.rate > 0
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {row.rate}%
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadFinancialReportPdf({
+                              company,
+                              selectedMonth: row.month,
+                              reportScope: 'Specific Month',
+                              currency,
+                              totalToBeCollected: row.toBeCollected,
+                              totalCollected: row.collected,
+                              totalExpenses: row.expenses,
+                              totalDues: row.dues,
+                              monthlyBreakdown: [row],
+                            })
+                          }
+                          title={`Download ${row.month} Financial Report PDF`}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors inline-flex items-center gap-1"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-100/80 font-bold border-t-2 border-slate-300 text-slate-900">
+                  <td className="py-3 px-4">Total Realized (YTD)</td>
+                  <td className="py-3 px-4 text-right font-mono">
+                    {formatCurrency(
+                      realizedMonthlyRows.reduce(
+                        (sum, r) => sum + r.toBeCollected,
+                        0
+                      ),
+                      currency
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono text-emerald-700">
+                    {formatCurrency(
+                      realizedMonthlyRows.reduce(
+                        (sum, r) => sum + r.collected,
+                        0
+                      ),
+                      currency
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono text-blue-700">
+                    {formatCurrency(
+                      realizedMonthlyRows.reduce(
+                        (sum, r) => sum + r.expenses,
+                        0
+                      ),
+                      currency
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono text-rose-700">
+                    {formatCurrency(
+                      realizedMonthlyRows.reduce((sum, r) => sum + r.dues, 0),
+                      currency
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono text-emerald-800">
+                    {formatCurrency(
+                      realizedMonthlyRows.reduce(
+                        (sum, r) => sum + r.netBalance,
+                        0
+                      ),
+                      currency
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-center font-mono">
+                    {(() => {
+                      const totalToCollect = realizedMonthlyRows.reduce(
+                        (sum, r) => sum + r.toBeCollected,
+                        0
+                      );
+                      const totalColl = realizedMonthlyRows.reduce(
+                        (sum, r) => sum + r.collected,
+                        0
+                      );
+                      return totalToCollect > 0
+                        ? `${Math.round((totalColl / totalToCollect) * 100)}%`
+                        : '100%';
+                    })()}
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadFinancialReportPdf({
+                          company,
+                          selectedMonth,
+                          reportScope: 'Year',
+                          currency,
+                          totalToBeCollected: displayToBeCollected,
+                          totalCollected: displayCollected,
+                          totalExpenses: displayExpenses,
+                          totalDues: displayDues,
+                          monthlyBreakdown: realizedMonthlyRows,
+                        })
+                      }
+                      title="Download Full Year Financial PDF"
+                      className="px-2 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-100 hover:bg-indigo-200 rounded transition-colors"
+                    >
+                      All PDF
+                    </button>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
 
@@ -2590,6 +2892,7 @@ export const FinanceAndSettingsViews: React.FC<
           activeMonth={selectedMonth}
           activeMonthRevenue={monthlyRevenue}
           activeMonthExpenses={monthlyExpenses}
+          activeMonthToBeCollected={displayToBeCollected}
           currency={currency}
           showExpenses={false}
         />
@@ -2789,6 +3092,7 @@ export const FinanceAndSettingsViews: React.FC<
           onUpdateCompany({
             ...company,
             name: compName.trim() || 'Your Company Name',
+            ownerName: compOwnerName.trim() || undefined,
             tagline: compTagline.trim() || CATEGORY_MAP[compCategory].tagline,
             phone: compPhone.trim(),
             email: compEmail.trim(),
@@ -2841,6 +3145,19 @@ export const FinanceAndSettingsViews: React.FC<
                   className="w-full pl-10 pr-3.5 py-2.5 text-sm rounded-lg border border-slate-200"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1.5">
+                Academy Owner Name
+              </label>
+              <input
+                type="text"
+                value={compOwnerName}
+                onChange={(e) => setCompOwnerName(e.target.value)}
+                placeholder="Enter academy owner name"
+                className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-200"
+              />
             </div>
 
             <div>

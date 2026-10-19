@@ -60,6 +60,7 @@ export interface CompanyProfile {
   phone: string;
   email: string;
   website: string;
+  ownerName?: string;
   logoDataUrl?: string;
   qrCodeDataUrl?: string;
   qrCodes?: PaymentQrCodeItem[];
@@ -146,6 +147,7 @@ export interface ClientEntity {
   name: string;
   address: string;
   phone: string;
+  ownerName?: string;
   enabled: boolean;
   createdAt: string;
   // Default recurring monthly fee structure (editable anytime)
@@ -223,9 +225,11 @@ export interface InvoiceEditableDocument {
   companyPhone: string;
   companyEmail: string;
   companyWebsite: string;
+  companyOwnerName?: string;
   clientName: string;
   clientAddress: string;
   clientPhone: string;
+  clientOwnerName?: string;
   softwareLabel: string;
   softwareCharges: number;
   whatsappLabel: string;

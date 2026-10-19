@@ -29,6 +29,7 @@ import { InvoicePreviewAndEditor } from './components/InvoicePreviewAndEditor';
 import { SchoolChargesAndPartnerListView } from './components/SchoolChargesAndPartnerListView';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallModal';
 import {
+  AVAILABLE_MONTHS,
   CATEGORY_MAP,
   createPaymentTimestamp,
   getCurrentMonthLabel,
@@ -134,9 +135,11 @@ function buildEditableInvoiceFromClient(
       companyPhone: company.phone || '',
       companyEmail: company.email || '',
       companyWebsite: company.website || '',
+      companyOwnerName: company.ownerName,
       clientName: '',
       clientAddress: '',
       clientPhone: '',
+      clientOwnerName: '',
       softwareLabel,
       softwareCharges: 0,
       whatsappLabel: 'WhatsApp Charges (0 × 0)',
@@ -198,9 +201,11 @@ function buildEditableInvoiceFromClient(
     companyPhone: company.phone,
     companyEmail: company.email,
     companyWebsite: company.website,
+    companyOwnerName: company.ownerName,
     clientName: client.name,
     clientAddress: client.address,
     clientPhone: client.phone,
+    clientOwnerName: client.ownerName,
     softwareLabel,
     softwareCharges: rec.softwareCharges,
     whatsappLabel,
@@ -718,54 +723,6 @@ export default function App() {
     };
   }, []);
 
-  // Automatically initialize and persist the current real-world month's ledger record for active clients when a new month starts
-  useEffect(() => {
-    const nowParsed = parseMonthLabel(realWorldMonth);
-    if (!nowParsed || clients.length === 0) return;
-
-    const clientsToRollover: ClientEntity[] = [];
-    const updatedClients = clients.map((client) => {
-      if (!client.enabled) return client;
-      if (client.monthlyRecords?.[realWorldMonth]) return client;
-
-      const recordKeys = Object.keys(client.monthlyRecords || {});
-      const hasPriorMonthRecord = recordKeys.some((k) => {
-        const p = parseMonthLabel(k);
-        return p !== null && p.serial < nowParsed.serial;
-      });
-
-      if (!hasPriorMonthRecord && recordKeys.length > 0) {
-        return client;
-      }
-
-      const computedNewMonthRecord = getOrComputeMonthlyRecord(
-        client,
-        realWorldMonth
-      );
-      const rolledClient: ClientEntity = {
-        ...client,
-        monthlyRecords: {
-          ...(client.monthlyRecords || {}),
-          [realWorldMonth]: computedNewMonthRecord,
-        },
-      };
-      clientsToRollover.push(rolledClient);
-      return rolledClient;
-    });
-
-    if (clientsToRollover.length > 0) {
-      setClients(updatedClients);
-      const activeUser = firebaseUser || auth.currentUser;
-      if (activeUser) {
-        Promise.all(
-          clientsToRollover.map((c) =>
-            syncClientToFirestore(activeUser.uid, c, false)
-          )
-        ).catch((err) => console.error(err));
-      }
-    }
-  }, [realWorldMonth, clients, firebaseUser]);
-
   const term = useMemo(() => getTerminology(company), [company]);
 
   const activeClients = useMemo(
@@ -1166,12 +1123,113 @@ export default function App() {
     explicitWhatsappCharges?: number,
     accountId?: string,
     accountName?: string,
-    bankName?: string
+    bankName?: string,
+    priorMonthPayments?: { month: string; amount: number }[]
   ) => {
     const target = clients.find((c) => c.id === clientId);
     if (!target) return;
 
-    const currentRec = getOrComputeMonthlyRecord(target, month);
+    let updatedRecords = { ...(target.monthlyRecords || {}) };
+    const ts = createPaymentTimestamp(month);
+    const affectedMonths = new Set<string>([month]);
+
+    // 1. Process prior month payments if user paid towards overdue balances
+    if (priorMonthPayments && priorMonthPayments.length > 0) {
+      priorMonthPayments.forEach((pItem) => {
+        if (pItem.amount <= 0 || pItem.month === month) return;
+        const priorMonth = pItem.month;
+        affectedMonths.add(priorMonth);
+        const priorRec = getOrComputeMonthlyRecord(
+          { ...target, monthlyRecords: updatedRecords },
+          priorMonth
+        );
+        const priorPaidNow = Math.max(0, pItem.amount);
+        const priorNewTotalPaid = priorRec.amountPaid + priorPaidNow;
+        const priorNewRemaining = Math.max(
+          0,
+          priorRec.totalAmount - priorNewTotalPaid
+        );
+        const priorNewStatus: PaymentStatus =
+          priorNewRemaining === 0
+            ? 'Paid'
+            : priorNewTotalPaid > 0
+            ? 'Partially Paid'
+            : 'Unpaid';
+
+        const priorPaymentTx: PaymentTransaction = {
+          id: `pay-prior-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          date: ts.date,
+          time: ts.time,
+          day: ts.day,
+          amount: priorPaidNow,
+          method,
+          note: note.trim()
+            ? `${note.trim()} (Paid towards ${priorMonth} dues in ${month})`
+            : `Paid towards ${priorMonth} dues in ${month}`,
+          billingMonth: priorMonth,
+          paymentFromAccountId: accountId,
+          paymentFromAccountName: accountName,
+          bankName: bankName,
+        };
+
+        updatedRecords[priorMonth] = {
+          ...priorRec,
+          amountPaid: priorNewTotalPaid,
+          remainingDues: priorNewRemaining,
+          status: priorNewStatus,
+          payments: [priorPaymentTx, ...(priorRec.payments || [])],
+        };
+      });
+
+      // Cascade forward through intermediate months up to current month
+      const allMonths = AVAILABLE_MONTHS;
+      const sortedPriorMonths = [...priorMonthPayments]
+        .map((p) => p.month)
+        .sort((a, b) => allMonths.indexOf(a) - allMonths.indexOf(b));
+      const earliestMonth = sortedPriorMonths[0];
+      const earliestIdx = allMonths.indexOf(earliestMonth);
+      const currIdx = allMonths.indexOf(month);
+
+      if (earliestIdx !== -1 && currIdx !== -1 && earliestIdx < currIdx) {
+        for (let i = earliestIdx + 1; i < currIdx; i++) {
+          const mName = allMonths[i];
+          const prevMName = allMonths[i - 1];
+          const prevRec =
+            updatedRecords[prevMName] ||
+            getOrComputeMonthlyRecord(
+              { ...target, monthlyRecords: updatedRecords },
+              prevMName
+            );
+          const carried = prevRec.remainingDues;
+
+          if (updatedRecords[mName]) {
+            const cur = updatedRecords[mName];
+            const newTot = cur.currentMonthTotal + carried;
+            const newRem = Math.max(0, newTot - cur.amountPaid);
+            const newStat: PaymentStatus =
+              newRem === 0
+                ? 'Paid'
+                : cur.amountPaid > 0
+                ? 'Partially Paid'
+                : 'Unpaid';
+            updatedRecords[mName] = {
+              ...cur,
+              previousDues: carried,
+              totalAmount: newTot,
+              remainingDues: newRem,
+              status: newStat,
+            };
+            affectedMonths.add(mName);
+          }
+        }
+      }
+    }
+
+    // 2. Re-compute current month with the newly adjusted previous dues
+    const currentRec = getOrComputeMonthlyRecord(
+      { ...target, monthlyRecords: updatedRecords },
+      month
+    );
     const billingType =
       whatsappBillingType ||
       target.whatsappBillingType ||
@@ -1202,7 +1260,6 @@ export default function App() {
         ? 'Partially Paid'
         : 'Unpaid';
 
-    const ts = createPaymentTimestamp(month);
     const newPaymentTx: PaymentTransaction = {
       id: `pay-${Date.now()}`,
       date: ts.date,
@@ -1217,6 +1274,55 @@ export default function App() {
       bankName: bankName,
     };
 
+    updatedRecords[month] = {
+      ...currentRec,
+      softwareCharges,
+      whatsappBillingType: billingType,
+      whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
+      whatsappMessages: billingType === 'per_month' ? 0 : whatsappMessages,
+      whatsappCharges,
+      chatbotCharges,
+      currentMonthTotal,
+      totalAmount,
+      amountPaid: newTotalPaid,
+      remainingDues: newRemaining,
+      status: newStatus,
+      payments:
+        amountPaidNow > 0
+          ? [newPaymentTx, ...(currentRec.payments || [])]
+          : currentRec.payments || [],
+    };
+
+    // Cascade forward to all subsequent months that are already explicitly recorded
+    const allMonthsInOrder = AVAILABLE_MONTHS;
+    const startIdx = allMonthsInOrder.indexOf(month);
+    if (startIdx !== -1) {
+      let carryDues = newRemaining;
+      for (let i = startIdx + 1; i < allMonthsInOrder.length; i++) {
+        const nextM = allMonthsInOrder[i];
+        if (updatedRecords[nextM]) {
+          const nextRec = updatedRecords[nextM];
+          const nextTotal = nextRec.currentMonthTotal + carryDues;
+          const nextRemaining = Math.max(0, nextTotal - nextRec.amountPaid);
+          const nextStatus: PaymentStatus =
+            nextRemaining === 0
+              ? 'Paid'
+              : nextRec.amountPaid > 0
+              ? 'Partially Paid'
+              : 'Unpaid';
+          updatedRecords[nextM] = {
+            ...nextRec,
+            previousDues: carryDues,
+            totalAmount: nextTotal,
+            remainingDues: nextRemaining,
+            status: nextStatus,
+          };
+          affectedMonths.add(nextM);
+          carryDues = nextRemaining;
+        }
+      }
+    }
+
     const updatedClient: ClientEntity = {
       ...target,
       softwareCharges,
@@ -1225,27 +1331,7 @@ export default function App() {
       whatsappMessages: billingType === 'per_month' ? 0 : whatsappMessages,
       whatsappCharges,
       chatbotCharges,
-      monthlyRecords: {
-        ...target.monthlyRecords,
-        [month]: {
-          ...currentRec,
-          softwareCharges,
-          whatsappBillingType: billingType,
-          whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
-          whatsappMessages: billingType === 'per_month' ? 0 : whatsappMessages,
-          whatsappCharges,
-          chatbotCharges,
-          currentMonthTotal,
-          totalAmount,
-          amountPaid: newTotalPaid,
-          remainingDues: newRemaining,
-          status: newStatus,
-          payments:
-            amountPaidNow > 0
-              ? [newPaymentTx, ...(currentRec.payments || [])]
-              : currentRec.payments || [],
-        },
-      },
+      monthlyRecords: updatedRecords,
     };
 
     setClients((prev) =>
@@ -1255,30 +1341,31 @@ export default function App() {
     let updatedCompany = company;
     if (
       company.receiptLog?.some(
-        (r) => r.clientId === clientId && r.month === month
+        (r) => r.clientId === clientId && affectedMonths.has(r.month)
       )
     ) {
       const updatedLog = company.receiptLog.map((r) => {
-        if (r.clientId === clientId && r.month === month) {
+        if (r.clientId === clientId && affectedMonths.has(r.month)) {
+          const recForMonth = updatedRecords[r.month];
+          if (!recForMonth) return r;
           const docData = buildEditableInvoiceFromClient(
             company,
             updatedClient,
-            month
+            r.month
           );
           return {
             ...r,
-            softwareCharges,
-            whatsappBillingType: billingType,
-            whatsappRate: billingType === 'per_month' ? 0 : whatsappRate,
-            whatsappMessages:
-              billingType === 'per_month' ? 0 : whatsappMessages,
-            whatsappCharges,
-            chatbotCharges,
-            currentMonthTotal,
-            totalAmount,
-            amountPaid: newTotalPaid,
-            remainingDues: newRemaining,
-            status: newStatus,
+            softwareCharges: recForMonth.softwareCharges,
+            whatsappBillingType: recForMonth.whatsappBillingType,
+            whatsappRate: recForMonth.whatsappRate,
+            whatsappMessages: recForMonth.whatsappMessages,
+            whatsappCharges: recForMonth.whatsappCharges,
+            chatbotCharges: recForMonth.chatbotCharges,
+            currentMonthTotal: recForMonth.currentMonthTotal,
+            totalAmount: recForMonth.totalAmount,
+            amountPaid: recForMonth.amountPaid,
+            remainingDues: recForMonth.remainingDues,
+            status: recForMonth.status,
             doc: docData,
           };
         }

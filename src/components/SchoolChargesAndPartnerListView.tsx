@@ -32,6 +32,7 @@ import {
   downloadAllPartnersReportPdf,
   downloadPartnerReportPdf,
 } from '../utils/partnerReportPdf';
+import { downloadSchoolReportPdf } from '../utils/schoolReportPdf';
 
 interface SchoolChargesAndPartnerListViewProps {
   company: CompanyProfile;
@@ -778,6 +779,21 @@ export const SchoolChargesAndPartnerListView: React.FC<
                             <Download className="w-3.5 h-3.5" />
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadSchoolReportPdf({
+                              client: row.client,
+                              company,
+                              selectedMonth,
+                              currency,
+                            })
+                          }
+                          title={`Download ${term.singular} Ledger Report PDF`}
+                          className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => onOpenInvoiceEditor(row.client.id, selectedMonth)}

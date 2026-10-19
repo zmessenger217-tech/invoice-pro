@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
+  AlertTriangle,
   Building2,
   Check,
   CheckCircle2,
@@ -32,6 +33,7 @@ import {
   getOrComputeMonthlyRecord,
   getPreviousMonthName,
   isClientInvoiceGenerated,
+  isPaymentAfterDueDate,
 } from '../data/initialData';
 import {
   AccountItem,
@@ -42,6 +44,7 @@ import {
   PaymentTransaction,
 } from '../types';
 import { RevenueExpenseChart } from './RevenueExpenseChart';
+import { downloadSchoolReportPdf } from '../utils/schoolReportPdf';
 
 interface ClientBillingViewsProps {
   activeTab: ActiveNavTab;
@@ -73,7 +76,8 @@ interface ClientBillingViewsProps {
     whatsappCharges?: number,
     paymentFromAccountId?: string,
     paymentFromAccountName?: string,
-    bankName?: string
+    bankName?: string,
+    priorMonthPayments?: { month: string; amount: number }[]
   ) => void;
   onGenerateInvoiceWithCharges: (
     clientId: string,
@@ -133,6 +137,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   const [clientName, setClientName] = useState('');
   const [clientAddress, setClientAddress] = useState('');
   const [clientPhone, setClientPhone] = useState('');
+  const [clientOwnerName, setClientOwnerName] = useState('');
   const [softwareEnabled, setSoftwareEnabled] = useState(true);
   const [softwareCharges, setSoftwareCharges] = useState<string>('');
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
@@ -196,10 +201,17 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     useState<number>(0);
   const [modalChatbotCharges, setModalChatbotCharges] = useState<number>(0);
   const [paymentInputAmount, setPaymentInputAmount] = useState<string>('');
+  const [priorMonthPaymentsInput, setPriorMonthPaymentsInput] = useState<
+    Record<string, string>
+  >({});
   const [selectedBank, setSelectedBank] = useState<string>('');
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentTransaction['method']>('Bank Transfer');
   const [paymentNote, setPaymentNote] = useState<string>('');
+
+  // School Report & History Modal States
+  const [reportModalClient, setReportModalClient] =
+    useState<ClientEntity | null>(null);
 
   // History Modal State
   const [historyModalClient, setHistoryModalClient] =
@@ -263,6 +275,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     setClientName(c.name);
     setClientAddress(c.address);
     setClientPhone(c.phone);
+    setClientOwnerName(c.ownerName || '');
     setSoftwareEnabled(c.softwareEnabled);
     setSoftwareCharges(String(monthRec.softwareCharges ?? c.softwareCharges));
     setWhatsappEnabled(c.whatsappEnabled);
@@ -366,7 +379,28 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       setModalWhatsappMessages(rec.whatsappMessages);
     }
     setModalChatbotCharges(rec.chatbotCharges);
-    setPaymentInputAmount(String(rec.remainingDues || 0));
+    const currentMonthOnlyDues = Math.max(
+      0,
+      rec.currentMonthTotal - rec.amountPaid
+    );
+    setPaymentInputAmount(
+      String(
+        currentMonthOnlyDues > 0 ? currentMonthOnlyDues : rec.remainingDues || 0
+      )
+    );
+
+    // Initialize prior month payments input for any previous months that have remaining dues
+    const initialPriorPayments: Record<string, string> = {};
+    const currIdx = AVAILABLE_MONTHS.indexOf(selectedMonth);
+    const priorMonths =
+      currIdx > 0 ? AVAILABLE_MONTHS.slice(0, currIdx) : [];
+    priorMonths.forEach((pm) => {
+      const pmRec = getOrComputeMonthlyRecord(client, pm);
+      if (pmRec.remainingDues > 0) {
+        initialPriorPayments[pm] = String(pmRec.remainingDues);
+      }
+    });
+    setPriorMonthPaymentsInput(initialPriorPayments);
     const defaultBank =
       activeAccounts[0]?.accountName ||
       company.qrCodes?.[0]?.bankName ||
@@ -467,6 +501,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       name: clientName.trim(),
       address: clientAddress.trim(),
       phone: clientPhone.trim(),
+      ownerName: clientOwnerName.trim() || undefined,
       enabled: existingClient ? existingClient.enabled : true,
       createdAt: existingClient?.createdAt || '2026-05-15',
       softwareEnabled,
@@ -787,6 +822,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
           activeMonth={selectedMonth}
           activeMonthRevenue={monthlyRevenue}
           activeMonthExpenses={monthlyExpenses}
+          activeMonthToBeCollected={totalAmountToBeCollected}
           currency={currency}
         />
       </div>
@@ -879,6 +915,19 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   onChange={(e) => setClientPhone(e.target.value)}
                   placeholder="+92 300 1234567"
                   className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-200 font-mono focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  School Owner Name
+                </label>
+                <input
+                  type="text"
+                  value={clientOwnerName}
+                  onChange={(e) => setClientOwnerName(e.target.value)}
+                  placeholder="Enter school owner name"
+                  className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-200 focus:border-blue-600 focus:outline-none"
                 />
               </div>
             </div>
@@ -1728,6 +1777,28 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           </button>
                           <button
                             type="button"
+                            onClick={() => setReportModalClient(client)}
+                            title={`View ${term.singular} Report & Ledger`}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
+                          >
+                            <Eye className="w-4 h-4 text-indigo-600" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadSchoolReportPdf({
+                                client,
+                                record,
+                                company,
+                                selectedMonth,
+                                currency
+                            })}
+                            title={`Download ${term.singular} Report PDF`}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => setHistoryModalClient(client)}
                             title="Payment History"
                             className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -2011,80 +2082,214 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   )}
               </div>
 
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const matchedAcc = activeAccounts.find(
-                    (a) => a.accountName === selectedBank || a.id === selectedBank
-                  );
-                  const resolvedAccountName =
-                    matchedAcc?.accountName || selectedBank || 'Cash Account';
-                  const resolvedAccountId = matchedAcc?.id;
-                  const finalWhatsappCharges = isModalPerMonth
-                    ? Number(modalWhatsappMonthlyCharges) || 0
-                    : modalWhatsappTotal;
-                  const finalWhatsappRate = isModalPerMonth
-                    ? Number(modalWhatsappMonthlyCharges) || 0
-                    : modalWhatsappRate;
-                  const finalWhatsappMessages = isModalPerMonth
-                    ? 1
-                    : modalWhatsappMessages;
-                  const finalBillingType = isModalPerMonth
-                    ? 'per_month'
-                    : 'per_message';
+              {(() => {
+                const currMonthIdx = AVAILABLE_MONTHS.indexOf(selectedMonth);
+                const overduePriorMonths = (
+                  currMonthIdx > 0 ? AVAILABLE_MONTHS.slice(0, currMonthIdx) : []
+                )
+                  .map((pm) => ({
+                    month: pm,
+                    rec: getOrComputeMonthlyRecord(paymentModalClient, pm),
+                  }))
+                  .filter((item) => item.rec.remainingDues > 0);
 
-                  onRecordPaymentWithCharges(
-                    paymentModalClient.id,
-                    selectedMonth,
-                    modalSoftwareCharges,
-                    finalWhatsappRate,
-                    finalWhatsappMessages,
-                    modalChatbotCharges,
-                    enteredPayNum,
-                    paymentMethod,
-                    paymentNote.trim(),
-                    finalBillingType,
-                    finalWhatsappCharges,
-                    resolvedAccountId,
-                    resolvedAccountName,
-                    selectedBank
-                  );
-                  setPaymentModalClient(null);
-                }}
-                className="space-y-4"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-semibold text-slate-700">
-                      How much did the {term.singular.toLowerCase()} pay? (Dues: {formatCurrency(activeModalRecord.remainingDues, currency)})
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPaymentInputAmount(
-                          String(
-                            Math.max(
-                              0,
-                              modalGrandTotal - activeModalRecord.amountPaid
+                const priorTotalPayNum = Object.entries(priorMonthPaymentsInput).reduce(
+                  (sum, [pMonth, pAmtStr]) => {
+                    if (overduePriorMonths.some((o) => o.month === pMonth)) {
+                      return sum + (Number(pAmtStr) || 0);
+                    }
+                    return sum;
+                  },
+                  0
+                );
+                const totalCombinedPayment = enteredPayNum + priorTotalPayNum;
+
+                return (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const matchedAcc = activeAccounts.find(
+                        (a) => a.accountName === selectedBank || a.id === selectedBank
+                      );
+                      const resolvedAccountName =
+                        matchedAcc?.accountName || selectedBank || 'Cash Account';
+                      const resolvedAccountId = matchedAcc?.id;
+                      const finalWhatsappCharges = isModalPerMonth
+                        ? Number(modalWhatsappMonthlyCharges) || 0
+                        : modalWhatsappTotal;
+                      const finalWhatsappRate = isModalPerMonth
+                        ? Number(modalWhatsappMonthlyCharges) || 0
+                        : modalWhatsappRate;
+                      const finalWhatsappMessages = isModalPerMonth
+                        ? 1
+                        : modalWhatsappMessages;
+                      const finalBillingType = isModalPerMonth
+                        ? 'per_month'
+                        : 'per_message';
+
+                      const priorPaymentsPayload = Object.entries(priorMonthPaymentsInput)
+                        .map(([pMonth, pAmtStr]) => ({
+                          month: pMonth,
+                          amount: Number(pAmtStr) || 0,
+                        }))
+                        .filter((p) => p.amount > 0);
+
+                      onRecordPaymentWithCharges(
+                        paymentModalClient.id,
+                        selectedMonth,
+                        modalSoftwareCharges,
+                        finalWhatsappRate,
+                        finalWhatsappMessages,
+                        modalChatbotCharges,
+                        enteredPayNum,
+                        paymentMethod,
+                        paymentNote.trim(),
+                        finalBillingType,
+                        finalWhatsappCharges,
+                        resolvedAccountId,
+                        resolvedAccountName,
+                        selectedBank,
+                        priorPaymentsPayload
+                      );
+                      setPaymentModalClient(null);
+                    }}
+                    className="space-y-4"
+                  >
+                    {/* 1. Current Month Payment Input */}
+                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800">
+                            Current Month Payment ({selectedMonth})
+                          </label>
+                          <p className="text-[11px] text-slate-500">
+                            Current Month Charges: {formatCurrency(modalCurrentMonthTotal, currency)} · Paid: {formatCurrency(activeModalRecord.amountPaid, currency)} · Current Month Dues: {formatCurrency(Math.max(0, modalCurrentMonthTotal - activeModalRecord.amountPaid), currency)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPaymentInputAmount(
+                              String(
+                                Math.max(
+                                  0,
+                                  modalCurrentMonthTotal - activeModalRecord.amountPaid
+                                )
+                              )
                             )
-                          )
-                        )
-                      }
-                      className="text-[11px] text-blue-600 font-semibold hover:underline"
-                    >
-                      Pay Full Remaining
-                    </button>
-                  </div>
-                  <input
-                    type="number"
-                    min={0}
-                    max={modalGrandTotal}
-                    required
-                    value={paymentInputAmount}
-                    onChange={(e) => setPaymentInputAmount(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-sm font-mono font-bold rounded-xl border border-slate-200 focus:border-blue-600 focus:outline-none"
-                  />
-                </div>
+                          }
+                          className="text-[11px] text-blue-600 font-semibold hover:underline"
+                        >
+                          Pay Full Current Month
+                        </button>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={modalGrandTotal}
+                        value={paymentInputAmount}
+                        onChange={(e) => setPaymentInputAmount(e.target.value)}
+                        placeholder={`Enter payment for ${selectedMonth}`}
+                        className="w-full px-3.5 py-2 text-sm font-mono font-bold rounded-xl border border-slate-200 bg-white focus:border-blue-600 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* 2. Overdue Months Payment Inputs (Only shown when dues are remaining) */}
+                    {overduePriorMonths.length > 0 && (
+                      <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200 space-y-3">
+                        <div className="flex items-center justify-between border-b border-rose-200/80 pb-2">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" />
+                              <span className="text-xs font-bold text-rose-900">
+                                Payment for Overdue Months ({overduePriorMonths.length} {overduePriorMonths.length === 1 ? 'Month' : 'Months'} Due)
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-rose-700 mt-0.5">
+                              When you make payment of that month dues, the due will also remove from that month.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const fullPrior: Record<string, string> = {};
+                              overduePriorMonths.forEach((m) => {
+                                fullPrior[m.month] = String(m.rec.remainingDues);
+                              });
+                              setPriorMonthPaymentsInput(fullPrior);
+                            }}
+                            className="text-[11px] text-rose-700 font-bold hover:underline shrink-0"
+                          >
+                            Clear All Prior Dues
+                          </button>
+                        </div>
+
+                        <div className="space-y-2.5">
+                          {overduePriorMonths.map((m) => {
+                            const enteredVal = priorMonthPaymentsInput[m.month] ?? '';
+                            return (
+                              <div
+                                key={m.month}
+                                className="bg-white p-3 rounded-lg border border-rose-200/80 space-y-1.5"
+                              >
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-bold text-slate-800">
+                                    {m.month} Dues
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-xs font-bold text-rose-600">
+                                      Remaining: {formatCurrency(m.rec.remainingDues, currency)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPriorMonthPaymentsInput((prev) => ({
+                                          ...prev,
+                                          [m.month]: String(m.rec.remainingDues),
+                                        }))
+                                      }
+                                      className="text-[10px] text-blue-600 font-semibold hover:underline"
+                                    >
+                                      Pay Full
+                                    </button>
+                                  </div>
+                                </div>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={m.rec.remainingDues}
+                                  value={enteredVal}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setPriorMonthPaymentsInput((prev) => ({
+                                      ...prev,
+                                      [m.month]: val,
+                                    }));
+                                  }}
+                                  placeholder={`Enter amount to pay towards ${m.month} dues`}
+                                  className="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 focus:border-rose-500 focus:outline-none"
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. Combined Total Summary */}
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                      <div>
+                        <div className="text-[11px] font-semibold text-emerald-800">
+                          Total Payment Now (Current Month + Prior Dues)
+                        </div>
+                        <div className="text-[10px] text-emerald-600">
+                          {formatCurrency(enteredPayNum, currency)} ({selectedMonth}) + {formatCurrency(priorTotalPayNum, currency)} (Prior Dues)
+                        </div>
+                      </div>
+                      <div className="text-base font-bold font-mono text-emerald-700">
+                        {formatCurrency(totalCombinedPayment, currency)}
+                      </div>
+                    </div>
 
                 {/* Payment From Account Selection */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2176,6 +2381,8 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   </button>
                 </div>
               </form>
+            );
+          })()}
             </div>
           </div>
         )}
@@ -2274,6 +2481,192 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           </div>
         )}
+
+        {/* School Report & Ledger Modal */}
+        {reportModalClient && (() => {
+          const clientRecords = AVAILABLE_MONTHS.map((m) => ({
+            month: m,
+            rec: getOrComputeMonthlyRecord(reportModalClient, m),
+          })).filter(
+            ({ month, rec }) =>
+              rec.currentMonthTotal > 0 ||
+              rec.amountPaid > 0 ||
+              rec.remainingDues > 0 ||
+              month === selectedMonth
+          );
+
+          let totalBilled = 0;
+          let totalPaid = 0;
+          let totalLateCount = 0;
+          clientRecords.forEach(({ rec }) => {
+            totalBilled += rec.currentMonthTotal;
+            totalPaid += rec.amountPaid;
+            (rec.payments || []).forEach((p) => {
+              if (isPaymentAfterDueDate(p.date, rec.dueDate)) {
+                totalLateCount++;
+              }
+            });
+          });
+          const latestDues = clientRecords.length > 0
+            ? clientRecords[clientRecords.length - 1].rec.remainingDues
+            : 0;
+
+          return (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl border border-slate-200 max-w-3xl w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+                <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        {term.singular} Statement of Account
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-900 mt-1">
+                      {reportModalClient.name}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {[reportModalClient.phone, reportModalClient.address, reportModalClient.ownerName ? `Owner: ${reportModalClient.ownerName}` : '']
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadSchoolReportPdf({
+                          client: reportModalClient,
+                          company,
+                          selectedMonth,
+                          currency,
+                        })
+                      }
+                      className="px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Download PDF Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReportModalClient(null)}
+                      className="p-1 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4 Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[11px] font-medium text-slate-500">Total Billed</div>
+                    <div className="text-sm font-bold font-mono text-slate-900 mt-0.5">
+                      {formatCurrency(totalBilled, currency)}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200">
+                    <div className="text-[11px] font-medium text-emerald-800">Total Paid</div>
+                    <div className="text-sm font-bold font-mono text-emerald-700 mt-0.5">
+                      {formatCurrency(totalPaid, currency)}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-rose-50/60 rounded-xl border border-rose-200">
+                    <div className="text-[11px] font-medium text-rose-800">Outstanding Dues</div>
+                    <div className="text-sm font-bold font-mono text-rose-700 mt-0.5">
+                      {formatCurrency(latestDues, currency)}
+                    </div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${totalLateCount > 0 ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                    <div className="text-[11px] font-medium">Punctuality</div>
+                    <div className="text-xs font-bold mt-0.5">
+                      {totalLateCount > 0 ? `${totalLateCount} Late Payment${totalLateCount === 1 ? '' : 's'}` : '100% On-Time'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chronological Table */}
+                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-900 text-white font-semibold text-[11px]">
+                        <th className="py-2.5 px-3">Billing Month</th>
+                        <th className="py-2.5 px-3">Due Date</th>
+                        <th className="py-2.5 px-3 text-right">Billed</th>
+                        <th className="py-2.5 px-3 text-right">Prev Dues</th>
+                        <th className="py-2.5 px-3 text-right">Total Due</th>
+                        <th className="py-2.5 px-3 text-right">Paid</th>
+                        <th className="py-2.5 px-3 text-right">Remaining Dues</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {clientRecords.map(({ month, rec }) => (
+                        <React.Fragment key={month}>
+                          <tr className="bg-white hover:bg-slate-50/80 font-medium">
+                            <td className="py-2 px-3 font-bold text-slate-900">{month}</td>
+                            <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">{rec.dueDate || '—'}</td>
+                            <td className="py-2 px-3 text-right font-mono">{formatCurrency(rec.currentMonthTotal, currency)}</td>
+                            <td className="py-2 px-3 text-right font-mono text-slate-500">{formatCurrency(rec.previousDues, currency)}</td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{formatCurrency(rec.totalAmount, currency)}</td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600">{formatCurrency(rec.amountPaid, currency)}</td>
+                            <td className={`py-2 px-3 text-right font-mono font-bold ${rec.remainingDues > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                              {formatCurrency(rec.remainingDues, currency)}
+                            </td>
+                          </tr>
+                          {rec.payments && rec.payments.length > 0 && (
+                            <tr>
+                              <td colSpan={7} className="px-3 py-1.5 bg-slate-50/70">
+                                <div className="space-y-1 pl-4 border-l-2 border-indigo-300">
+                                  {rec.payments.map((tx, pIdx) => {
+                                    const isLate = isPaymentAfterDueDate(tx.date, rec.dueDate);
+                                    return (
+                                      <div key={tx.id || pIdx} className={`p-1.5 rounded-lg flex items-center justify-between text-[11px] ${isLate ? 'bg-rose-50 text-rose-800 border border-rose-200' : 'bg-white text-slate-700 border border-slate-200/60'}`}>
+                                        <div className="flex items-center gap-2">
+                                          {isLate ? (
+                                            <span className="px-1.5 py-0.5 rounded font-bold bg-rose-600 text-white text-[10px] uppercase tracking-wider flex items-center gap-1">
+                                              <AlertTriangle className="w-3 h-3" /> Late Payment
+                                            </span>
+                                          ) : (
+                                            <span className="px-1.5 py-0.5 rounded font-semibold bg-emerald-100 text-emerald-800 text-[10px]">
+                                              On-Time
+                                            </span>
+                                          )}
+                                          <span className="font-mono">
+                                            Paid on: <strong className={isLate ? 'text-rose-700' : 'text-slate-900'}>{tx.date}</strong> {tx.time ? `· ${tx.time}` : ''}
+                                            {isLate && <span className="ml-1 text-rose-600 font-semibold">(Due date was: {rec.dueDate})</span>}
+                                          </span>
+                                          <span className="text-slate-400">·</span>
+                                          <span className="text-slate-600">{tx.paymentFromAccountName || tx.bankName || tx.method}</span>
+                                          {tx.note && <span className="text-slate-500 italic">({tx.note})</span>}
+                                        </div>
+                                        <div className={`font-mono font-bold ${isLate ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                          +{formatCurrency(tx.amount, currency)}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setReportModalClient(null)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {deleteModalClient && (
           <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">

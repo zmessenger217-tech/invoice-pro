@@ -204,10 +204,18 @@ export function buildInvoicePdfInstance(
     23.5
   );
 
+  let nextNoteY = 29.5;
   if (docData.headerNote) {
     pdf.setTextColor(148, 163, 184);
     pdf.setFontSize(8.5);
-    pdf.text(docData.headerNote, textStartX, 29.5);
+    pdf.text(docData.headerNote, textStartX, nextNoteY);
+    nextNoteY += 5.5;
+  }
+  if (docData.companyOwnerName) {
+    pdf.setTextColor(203, 213, 225);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    pdf.text(`Academy Owner: ${docData.companyOwnerName}`, textStartX, nextNoteY);
   }
 
   // Right Side Header: INVOICE Title & Number
@@ -258,7 +266,11 @@ export function buildInvoicePdfInstance(
   pdf.setTextColor(71, 85, 105);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
-  const clientMeta = [docData.clientAddress, docData.clientPhone]
+  const clientMeta = [
+    docData.clientAddress,
+    docData.clientPhone,
+    docData.clientOwnerName ? `Owner: ${docData.clientOwnerName}` : null,
+  ]
     .filter(Boolean)
     .join('  •  ');
   pdf.text(clientMeta || 'Address / Phone', 23, 69.5);

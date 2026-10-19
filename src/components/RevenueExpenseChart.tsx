@@ -10,6 +10,7 @@ interface RevenueExpenseChartProps {
   activeMonth: string;
   activeMonthRevenue: number;
   activeMonthExpenses: number;
+  activeMonthToBeCollected: number;
   currency?: string;
   showExpenses?: boolean;
 }
@@ -19,6 +20,7 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
   activeMonth,
   activeMonthRevenue,
   activeMonthExpenses,
+  activeMonthToBeCollected,
   currency = 'Rs.',
   showExpenses = true,
 }) => {
@@ -31,17 +33,25 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
     if (item.fullMonth === activeMonth) {
       return {
         ...item,
-        revenue: activeMonthRevenue,
-        expenses: activeMonthExpenses,
+        revenue: Number(activeMonthRevenue) || 0,
+        expenses: Number(activeMonthExpenses) || 0,
+        toBeCollected: Number(activeMonthToBeCollected) || 0,
       };
     }
-    return item;
+    // For non-active months, we might not have the real data, 
+    // for now let's set toBeCollected to 0 to avoid showing expected future/past data
+    return { 
+        ...item, 
+        revenue: Number(item.revenue) || 0, 
+        expenses: Number(item.expenses) || 0, 
+        toBeCollected: 0 
+    };
   });
 
   const maxValue = Math.max(
     500000,
     ...data.map((d) =>
-      showExpenses ? Math.max(d.revenue, d.expenses) : d.revenue
+      Math.max(Number(d.revenue) || 0, Number(d.expenses) || 0, Number(d.toBeCollected) || 0)
     )
   );
 
@@ -59,11 +69,23 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
   const chartHeight = svgHeight - paddingTop - paddingBottom;
 
   const pointsCount = data.length;
-  const getX = (idx: number) => paddingLeft + (idx / (pointsCount - 1)) * chartWidth;
-  const getY = (val: number) => paddingTop + chartHeight - (val / maxValue) * chartHeight;
+  const getX = (idx: number) => {
+    if (pointsCount <= 1) return paddingLeft + chartWidth / 2;
+    const x = paddingLeft + (idx / (pointsCount - 1)) * chartWidth;
+    return isNaN(x) ? paddingLeft : Number(x.toFixed(2));
+  };
+
+  const getY = (val: number) => {
+    const num = Number(val);
+    const safeVal = isNaN(num) ? 0 : num;
+    const safeMax = !maxValue || isNaN(maxValue) || maxValue <= 0 ? 1 : maxValue;
+    const y = paddingTop + chartHeight - (safeVal / safeMax) * chartHeight;
+    return isNaN(y) ? paddingTop + chartHeight : Number(y.toFixed(2));
+  };
 
   const revPoints = data.map((d, i) => `${getX(i)},${getY(d.revenue)}`).join(' ');
   const expPoints = data.map((d, i) => `${getX(i)},${getY(d.expenses)}`).join(' ');
+  const tbcPoints = data.map((d, i) => `${getX(i)},${getY(d.toBeCollected)}`).join(' ');
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -86,6 +108,10 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
               <span className="text-slate-700">Expenses</span>
             </div>
           )}
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-emerald-500" />
+            <span className="text-slate-700">To be Collected</span>
+          </div>
         </div>
       </div>
 
@@ -117,33 +143,16 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
             );
           })}
 
-          {/* Expenses Line & Area */}
+          {/* Expenses Line */}
           {showExpenses && (
-            <>
-              <polyline
-                fill="none"
-                stroke="#ef4444"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                points={expPoints}
-              />
-              {data.map((d, i) => {
-                const cx = getX(i);
-                const cy = getY(d.expenses);
-                return (
-                  <circle
-                    key={`exp-${d.shortMonth}`}
-                    cx={cx}
-                    cy={cy}
-                    r={hoveredIdx === i ? 5 : 3.5}
-                    className="fill-white stroke-red-500 stroke-2 transition-all cursor-pointer"
-                    onMouseEnter={() => setHoveredIdx(i)}
-                    onMouseLeave={() => setHoveredIdx(null)}
-                  />
-                );
-              })}
-            </>
+            <polyline
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              points={expPoints}
+            />
           )}
 
           {/* Revenue Line */}
@@ -155,22 +164,31 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
             strokeLinejoin="round"
             points={revPoints}
           />
+
+          {/* To Be Collected Line */}
+          <polyline
+            fill="none"
+            stroke="#10b981"
+            strokeWidth="2.5"
+            strokeDasharray="6 4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            points={tbcPoints}
+          />
+          
+          {/* Data Points */}
           {data.map((d, i) => {
             const cx = getX(i);
-            const cy = getY(d.revenue);
+            const cyRev = getY(d.revenue);
+            const cyExp = getY(d.expenses);
+            const cyTbc = getY(d.toBeCollected);
             const isCurrent = d.fullMonth === activeMonth;
+
             return (
-              <g key={`rev-${d.shortMonth}`}>
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r={hoveredIdx === i || isCurrent ? 6 : 4}
-                  className={`transition-all cursor-pointer ${
-                    isCurrent ? 'fill-blue-600 stroke-white stroke-2' : 'fill-white stroke-blue-600 stroke-2'
-                  }`}
-                  onMouseEnter={() => setHoveredIdx(i)}
-                  onMouseLeave={() => setHoveredIdx(null)}
-                />
+              <g key={`points-${d.shortMonth}`} onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)}>
+                <circle cx={cx} cy={cyRev} r={isCurrent ? 6 : 3} className={isCurrent ? 'fill-blue-600' : 'fill-blue-400'} />
+                {showExpenses && <circle cx={cx} cy={cyExp} r={3} className="fill-red-400" />}
+                <circle cx={cx} cy={cyTbc} r={3} className="fill-emerald-400" />
               </g>
             );
           })}
@@ -211,6 +229,9 @@ export const RevenueExpenseChart: React.FC<RevenueExpenseChartProps> = ({
                 Expenses: {formatCurrency(data[hoveredIdx].expenses, currency)}
               </div>
             )}
+            <div className="font-mono text-emerald-300">
+              To be Collected: {formatCurrency(data[hoveredIdx].toBeCollected, currency)}
+            </div>
           </div>
         )}
       </div>

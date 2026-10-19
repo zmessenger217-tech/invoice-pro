@@ -384,83 +384,27 @@ export function getOrComputeMonthlyRecord(
     };
   }
 
-  // Pre-fill charges for new month with carry-forward rules:
-  // "Per month whatsapp charges will carry on for next month but per messages will not carry out for next month"
-  const softwareCharges = client.softwareEnabled
-    ? Number(client.softwareCharges) || 0
-    : 0;
-
-  const hasAnySavedMonthRecord =
-    client.monthlyRecords && Object.keys(client.monthlyRecords).length > 0;
-  const resolvedBillingType: 'per_month' | 'per_message' =
-    prevRecord?.whatsappBillingType ||
-    client.whatsappBillingType ||
-    'per_message';
-
-  let initialBillingType: 'per_month' | 'per_message' = resolvedBillingType;
-  let initialWhatsappRate = client.whatsappEnabled
-    ? Number(prevRecord?.whatsappRate ?? client.whatsappRate) || 0
-    : 0;
-  let initialWhatsappMessages = 0;
-  let initialWhatsappCharges = 0;
-
-  if (client.whatsappEnabled) {
-    if (resolvedBillingType === 'per_month') {
-      // Per-month WhatsApp charges carry on for next month
-      initialBillingType = 'per_month';
-      initialWhatsappCharges =
-        Number(prevRecord?.whatsappCharges) ||
-        Number(client.whatsappCharges) ||
-        0;
-      initialWhatsappRate = 0;
-      initialWhatsappMessages = 0;
-    } else {
-      // Per-message WhatsApp counts do NOT carry out for next month
-      initialBillingType = 'per_message';
-      initialWhatsappRate =
-        Number(prevRecord?.whatsappRate ?? client.whatsappRate) || 0;
-      initialWhatsappMessages = hasAnySavedMonthRecord
-        ? 0
-        : Number(client.whatsappMessages) || 0;
-      initialWhatsappCharges = 0;
-    }
-  }
-
-  const computedClientPerMsg = Math.round(initialWhatsappRate * initialWhatsappMessages);
-  const billingType = initialBillingType;
-  const whatsappCharges = client.whatsappEnabled
-    ? billingType === 'per_month'
-      ? initialWhatsappCharges
-      : computedClientPerMsg
-    : 0;
-  const whatsappRate = initialWhatsappRate;
-  const whatsappMessages = initialWhatsappMessages;
-  const chatbotCharges = client.chatbotEnabled
-    ? Number(client.chatbotCharges) || 0
-    : 0;
-  const currentMonthTotal =
-    softwareCharges + whatsappCharges + chatbotCharges;
-  const previousDues = carriedDues;
-  const totalAmount = currentMonthTotal + previousDues;
-
+  // If user data for this month is not available, do NOT add expected data from yourself!
+  // Return zero charges for this month, carrying forward only real unpaid dues from prior billed months if any.
   const numSuffix =
     client.id.replace(/\D/g, '').slice(-3).padStart(3, '0') || '001';
 
   return {
     month,
-    softwareCharges,
-    whatsappBillingType: billingType,
-    whatsappRate,
-    whatsappMessages,
-    whatsappCharges,
-    chatbotCharges,
-    previousDues,
-    previousDuesLabel: `Previous Dues — ${prevMonth}`,
-    currentMonthTotal,
-    totalAmount,
+    softwareCharges: 0,
+    whatsappBillingType: client.whatsappBillingType || 'per_message',
+    whatsappRate: 0,
+    whatsappMessages: 0,
+    whatsappCharges: 0,
+    chatbotCharges: 0,
+    previousDues: carriedDues,
+    previousDuesLabel:
+      carriedDues > 0 ? `Previous Dues — ${prevMonth}` : '',
+    currentMonthTotal: 0,
+    totalAmount: carriedDues,
     amountPaid: 0,
-    remainingDues: totalAmount,
-    status: totalAmount === 0 ? 'Paid' : 'Unpaid',
+    remainingDues: carriedDues,
+    status: carriedDues === 0 ? 'Paid' : 'Unpaid',
     invoiceNumber: `INV-${numSuffix}`,
     invoiceDate: getIssueDateForMonth(month),
     dueDate: getDueDateForMonth(month),
@@ -469,10 +413,10 @@ export function getOrComputeMonthlyRecord(
     partnerId: client.partnerId,
     partnerName: client.partnerName,
     partnerPaymentEnabled: client.partnerPaymentEnabled,
-    partnerSoftwareCharges: client.partnerSoftwareCharges,
-    partnerWhatsappCharges: client.partnerWhatsappCharges,
-    partnerChatbotCharges: client.partnerChatbotCharges,
-    partnerTotalPayment: client.partnerTotalPayment,
+    partnerSoftwareCharges: 0,
+    partnerWhatsappCharges: 0,
+    partnerChatbotCharges: 0,
+    partnerTotalPayment: 0,
     partnerNote: client.partnerNote,
   };
 }
@@ -555,3 +499,59 @@ export function getMonthlyChartBaseline(monthOrYear?: string | number): {
 }
 
 export const MONTHLY_CHART_BASELINE = getMonthlyChartBaseline();
+
+/**
+ * Parses various date string representations (e.g. '15 May 2026', '15-05-2026', '2026-05-15') to epoch time.
+ */
+export function parseDateToTimestamp(dateStr?: string): number | null {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const clean = dateStr.trim();
+  if (!clean) return null;
+
+  // 1. Try ISO or standard parse
+  const direct = Date.parse(clean);
+  if (!isNaN(direct)) return direct;
+
+  // 2. Try DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    return new Date(year, month, day).getTime();
+  }
+
+  // 3. Try "15 May 2026" or "15th May 2026"
+  const wordMatch = clean.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})$/);
+  if (wordMatch) {
+    const day = parseInt(wordMatch[1], 10);
+    const monthName = wordMatch[2];
+    const year = parseInt(wordMatch[3], 10);
+    const parsed = Date.parse(`${monthName} ${day}, ${year}`);
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+/**
+ * Checks whether a payment was made AFTER the invoice due date.
+ */
+export function isPaymentAfterDueDate(
+  paymentDate?: string,
+  dueDate?: string
+): boolean {
+  if (!paymentDate || !dueDate) return false;
+  const payTime = parseDateToTimestamp(paymentDate);
+  const dueTime = parseDateToTimestamp(dueDate);
+  if (payTime === null || dueTime === null) return false;
+
+  const payDay = new Date(payTime);
+  payDay.setHours(0, 0, 0, 0);
+
+  const dueDay = new Date(dueTime);
+  dueDay.setHours(23, 59, 59, 999);
+
+  return payDay.getTime() > dueDay.getTime();
+}
+
