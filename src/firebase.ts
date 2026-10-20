@@ -788,10 +788,20 @@ export function subscribeToWorkspaceRealtime(
           id: d.id,
           description: data.description,
           amount: Number(data.amount) || 0,
+          amountPaid:
+            data.amountPaid !== undefined
+              ? Number(data.amountPaid)
+              : data.isPaid || data.status === 'Paid'
+              ? Number(data.amount) || 0
+              : 0,
+          status: data.status || (data.isPaid ? 'Paid' : 'Unpaid'),
+          isPaid: Boolean(data.isPaid || data.status === 'Paid'),
           category: data.category,
           date: data.date,
           month: data.month,
           partnerName: data.partnerName || undefined,
+          isMonthlyRecurring: Boolean(data.isMonthlyRecurring),
+          recurringGroupId: data.recurringGroupId || undefined,
         };
       });
       callbacks.onExpensesChange(list);
@@ -1042,10 +1052,20 @@ export async function loadOrBootstrapWorkspace(
           id: d.id,
           description: data.description,
           amount: Number(data.amount) || 0,
+          amountPaid:
+            data.amountPaid !== undefined
+              ? Number(data.amountPaid)
+              : data.isPaid || data.status === 'Paid'
+              ? Number(data.amount) || 0
+              : 0,
+          status: data.status || (data.isPaid ? 'Paid' : 'Unpaid'),
+          isPaid: Boolean(data.isPaid || data.status === 'Paid'),
           category: data.category,
           date: data.date,
           month: data.month,
           partnerName: data.partnerName || undefined,
+          isMonthlyRecurring: Boolean(data.isMonthlyRecurring),
+          recurringGroupId: data.recurringGroupId || undefined,
         };
       });
     }
@@ -1308,10 +1328,20 @@ export async function createExpenseInFirestore(
         ownerId: cleanUid,
         description: clampString(expense.description, 160, 'Expense'),
         amount: Math.max(0, Number(expense.amount) || 0),
+        amountPaid:
+          expense.amountPaid !== undefined
+            ? Number(expense.amountPaid)
+            : expense.status === 'Paid' || expense.isPaid
+            ? Number(expense.amount) || 0
+            : 0,
+        status: expense.status || (expense.isPaid ? 'Paid' : 'Unpaid'),
+        isPaid: Boolean(expense.isPaid || expense.status === 'Paid'),
         category: expense.category,
         date: clampString(expense.date, 30, '15-05-2026'),
         month: clampString(expense.month, 40, 'May 2026'),
         partnerName: clampString(expense.partnerName, 120, ''),
+        isMonthlyRecurring: Boolean(expense.isMonthlyRecurring),
+        recurringGroupId: clampString(expense.recurringGroupId || '', 80, ''),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -1319,10 +1349,20 @@ export async function createExpenseInFirestore(
       await updateDoc(ref, {
         description: clampString(expense.description, 160, 'Expense'),
         amount: Math.max(0, Number(expense.amount) || 0),
+        amountPaid:
+          expense.amountPaid !== undefined
+            ? Number(expense.amountPaid)
+            : expense.status === 'Paid' || expense.isPaid
+            ? Number(expense.amount) || 0
+            : 0,
+        status: expense.status || (expense.isPaid ? 'Paid' : 'Unpaid'),
+        isPaid: Boolean(expense.isPaid || expense.status === 'Paid'),
         category: expense.category,
         date: clampString(expense.date, 30, '15-05-2026'),
         month: clampString(expense.month, 40, 'May 2026'),
         partnerName: clampString(expense.partnerName, 120, ''),
+        isMonthlyRecurring: Boolean(expense.isMonthlyRecurring),
+        recurringGroupId: clampString(expense.recurringGroupId || '', 80, ''),
         updatedAt: serverTimestamp(),
       });
     }

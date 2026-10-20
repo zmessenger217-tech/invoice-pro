@@ -185,11 +185,19 @@ export interface ExpenseItem {
   id: string;
   description: string;
   amount: number;
+  amountPaid?: number;
+  status?: 'Paid' | 'Partially Paid' | 'Unpaid';
+  isPaid?: boolean;
+  paymentMethod?: PaymentTransaction['method'];
+  paymentFromAccountId?: string;
+  paymentFromAccountName?: string;
   category: ExpenseCategory;
   date: string; // DD-MM-YYYY or YYYY-MM-DD
   month: string; // e.g., 'May 2026'
   partnerId?: string;
   partnerName?: string;
+  isMonthlyRecurring?: boolean;
+  recurringGroupId?: string;
 }
 
 export interface PartnerItem {

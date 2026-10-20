@@ -91,6 +91,13 @@ interface ClientBillingViewsProps {
   onQuickPrintInvoice: (clientId: string, month: string) => void;
   onQuickWhatsAppInvoice: (clientId: string, month: string) => void;
   onDeleteInvoice?: (clientId: string, month: string) => void;
+  monthlyBreakdown?: Array<{
+    month: string;
+    toBeCollected: number;
+    collected: number;
+    expenses: number;
+    netBalance?: number;
+  }>;
   onGenerateAllMonthlyInvoices?: (
     month: string
   ) => Promise<{ count: number; totalAmount: number } | void> | void;
@@ -109,6 +116,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   monthlyRevenue,
   monthlyExpenses,
   partnerPayoutsTotal,
+  monthlyBreakdown,
   onResetMonthlyExpenses,
   onSaveClient,
   onDeleteClient,
@@ -680,6 +688,14 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               <Plus className="w-3.5 h-3.5" />
               <span>Add {term.singular}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('expenses')}
+              className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Expense</span>
+            </button>
           </div>
         </div>
 
@@ -748,10 +764,19 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setActiveTab('expenses')}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setActiveTab('expenses')}
+            className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between cursor-pointer hover:border-rose-300 hover:shadow-sm transition-all group"
+          >
             <div>
-              <div className="text-xs font-medium text-slate-500">
-                Monthly Expenses
+              <div className="text-xs font-medium text-slate-500 group-hover:text-rose-700 transition-colors flex items-center gap-1.5">
+                <span>Monthly Expenses</span>
+                <span className="text-[10px] bg-rose-50 text-rose-600 px-1.5 py-0.2 rounded font-semibold border border-rose-100">
+                  Manage &amp; Add →
+                </span>
               </div>
               <div className="text-xl sm:text-2xl font-bold text-rose-600 font-mono tabular-nums mt-1.5">
                 {formatCurrency(monthlyExpenses, currency)}{' '}
@@ -767,7 +792,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               </div>
 
             </div>
-            <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 group-hover:bg-rose-100 transition-colors">
               <TrendingDown className="w-5 h-5" />
             </div>
           </div>
@@ -814,15 +839,33 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           </div>
 
+          <div className="bg-white rounded-xl border border-violet-200 bg-violet-50/20 p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-bold text-violet-800">
+                Amount After All Expenses
+              </div>
+              <div className="text-2xl font-bold text-violet-700 font-mono tabular-nums mt-1.5">
+                {formatCurrency(monthlyRevenue - monthlyExpenses, currency)}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                Net Profit after deducting all expenses
+              </div>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center font-bold text-sm">
+              Net
+            </div>
+          </div>
+
         </div>
 
         {/* Monthly Revenue vs Expenses Chart */}
         <RevenueExpenseChart
-          title="Revenue vs Expenses"
+          title="Revenue vs Expenses & Profit"
           activeMonth={selectedMonth}
           activeMonthRevenue={monthlyRevenue}
           activeMonthExpenses={monthlyExpenses}
           activeMonthToBeCollected={totalAmountToBeCollected}
+          monthlyBreakdown={monthlyBreakdown}
           currency={currency}
         />
       </div>

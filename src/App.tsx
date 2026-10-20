@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Receipt,
   ScrollText,
   Settings,
   ToggleLeft,
@@ -834,7 +835,71 @@ export default function App() {
     [partners, activeClients, selectedMonth]
   );
 
-  const monthlyExpenses = partnerPayoutsTotal;
+  const directMonthlyExpenses = useMemo(
+    () =>
+      activeExpenses
+        .filter(
+          (e) =>
+            e.month === selectedMonth &&
+            e.category !== 'Partner Payout' &&
+            !e.partnerId &&
+            (e.status === 'Paid' || e.isPaid !== false)
+        )
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
+    [activeExpenses, selectedMonth]
+  );
+
+  const monthlyExpenses = partnerPayoutsTotal + directMonthlyExpenses;
+
+  const dashboardMonthlyBreakdown = useMemo(() => {
+    return AVAILABLE_MONTHS.map((m) => {
+      const activeForMonth = activeClients;
+      const toBeCollected = activeForMonth.reduce(
+        (sum, c) => sum + getOrComputeMonthlyRecord(c, m).totalAmount,
+        0
+      );
+      const collected = activeForMonth.reduce(
+        (sum, c) => sum + getOrComputeMonthlyRecord(c, m).amountPaid,
+        0
+      );
+      const partnerExp = partners.reduce((sum, p) => {
+        const pRec = p.paidMonths?.[m];
+        if (pRec?.amountPaid !== undefined && Number(pRec.amountPaid) > 0) {
+          return sum + Number(pRec.amountPaid);
+        }
+        return sum + (pRec?.paid ? p.monthlyPayment || 0 : 0);
+      }, 0);
+      const directExp = activeExpenses
+        .filter(
+          (e) =>
+            e.month === m &&
+            e.category !== 'Partner Payout' &&
+            !e.partnerId &&
+            (e.status === 'Paid' || e.isPaid !== false)
+        )
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      const totalExp = partnerExp + directExp;
+      const dues = activeForMonth.reduce(
+        (sum, c) => sum + getOrComputeMonthlyRecord(c, m).remainingDues,
+        0
+      );
+      return {
+        month: m,
+        toBeCollected,
+        collected,
+        expenses: totalExp,
+        dues,
+        netBalance: collected - totalExp,
+      };
+    }).filter(
+      (r) =>
+        r.toBeCollected > 0 ||
+        r.collected > 0 ||
+        r.expenses > 0 ||
+        r.dues > 0 ||
+        r.month === selectedMonth
+    );
+  }, [activeClients, partners, activeExpenses, selectedMonth]);
 
   const handleResetMonthlyExpenses = async () => {
     setExpenses([]);
@@ -1983,6 +2048,44 @@ export default function App() {
     }
   };
 
+  const handleUpdateExpense = async (updatedExpense: ExpenseItem) => {
+    setExpenses((prev) =>
+      prev.map((e) => (e.id === updatedExpense.id ? updatedExpense : e))
+    );
+    showCenterPopup(
+      'Expense Updated',
+      `${updatedExpense.description} marked as ${updatedExpense.status || 'Paid'}.`,
+      'success'
+    );
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
+      try {
+        await createExpenseInFirestore(activeUser.uid, updatedExpense);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleAddExpenses = async (newExpenses: ExpenseItem[]) => {
+    setExpenses((prev) => [...newExpenses, ...prev]);
+    showCenterPopup(
+      'Expenses Saved',
+      `Saved ${newExpenses.length} monthly recurring expense entries.`,
+      'success'
+    );
+    const activeUser = firebaseUser || auth.currentUser;
+    if (activeUser) {
+      try {
+        for (const exp of newExpenses) {
+          await createExpenseInFirestore(activeUser.uid, exp);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
   const handleDeleteExpense = async (expenseId: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== expenseId));
     showCenterPopup(
@@ -2561,6 +2664,7 @@ export default function App() {
     { id: 'invoices', label: 'Invoices', icon: FileText },
     { id: 'invoice-log', label: 'Invoice Log', icon: ScrollText },
     { id: 'invoice-editor', label: 'Invoice Editor', icon: Edit3 },
+    { id: 'expenses', label: 'Expenses', icon: Receipt },
     { id: 'partners', label: 'Partners', icon: Users },
     { id: 'finance-report', label: 'Finance Report', icon: BarChart3 },
     {
@@ -2878,6 +2982,7 @@ export default function App() {
               monthlyRevenue={monthlyRevenue}
               monthlyExpenses={monthlyExpenses}
               partnerPayoutsTotal={partnerPayoutsTotal}
+              monthlyBreakdown={dashboardMonthlyBreakdown}
               onResetMonthlyExpenses={handleResetMonthlyExpenses}
               onSaveClient={handleSaveClient}
               onDeleteClient={handleDeleteClient}
@@ -2965,6 +3070,8 @@ export default function App() {
               totalCollected={totalCollected}
               totalOutstandingDues={totalOutstandingDues}
               onAddExpense={handleAddExpense}
+              onAddExpenses={handleAddExpenses}
+              onUpdateExpense={handleUpdateExpense}
               onDeleteExpense={handleDeleteExpense}
               onAddPartner={handleAddPartner}
               onTogglePartnerPaid={handleTogglePartnerPaid}

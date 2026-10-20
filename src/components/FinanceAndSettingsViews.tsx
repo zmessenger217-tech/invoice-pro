@@ -12,6 +12,7 @@ import {
   Plus,
   Printer,
   QrCode,
+  Repeat,
   Search,
   Trash2,
   UploadCloud,
@@ -67,6 +68,8 @@ interface FinanceAndSettingsViewsProps {
   totalCollected: number;
   totalOutstandingDues: number;
   onAddExpense: (expense: ExpenseItem) => void;
+  onAddExpenses?: (expenses: ExpenseItem[]) => void;
+  onUpdateExpense?: (expense: ExpenseItem) => void;
   onDeleteExpense: (id: string) => void;
   onAddPartner: (partner: PartnerItem) => void;
   onTogglePartnerPaid: (partnerId: string, month: string) => void;
@@ -124,6 +127,8 @@ export const FinanceAndSettingsViews: React.FC<
   totalCollected,
   totalOutstandingDues,
   onAddExpense,
+  onAddExpenses,
+  onUpdateExpense,
   onDeleteExpense,
   onAddPartner,
   onTogglePartnerPaid,
@@ -142,6 +147,11 @@ export const FinanceAndSettingsViews: React.FC<
   const [expCategory, setExpCategory] =
     useState<ExpenseCategory>('Office Expenses');
   const [expPartnerId, setExpPartnerId] = useState<string>('');
+  const [expStatus, setExpStatus] = useState<'Paid' | 'Unpaid'>('Paid');
+  const [isMonthlyRecurring, setIsMonthlyRecurring] = useState(false);
+  const [recurringSchedule, setRecurringSchedule] = useState<
+    'all_months' | 'from_current' | 'single'
+  >('all_months');
   const [expDate, setExpDate] = useState(() =>
     getIssueDateForMonth(selectedMonth)
   );
@@ -426,19 +436,68 @@ export const FinanceAndSettingsViews: React.FC<
                 const linkedPartner = partners.find(
                   (p) => p.id === expPartnerId
                 );
-                const newExp: ExpenseItem = {
-                  id: `exp-${Date.now()}`,
-                  description: expDesc.trim() || 'Office Expense',
-                  amount: Math.max(0, Number(expAmount) || 0),
-                  category: expCategory,
-                  date: expDate.trim() || '15-05-2026',
-                  month: selectedMonth,
-                  partnerId: linkedPartner?.id,
-                  partnerName: linkedPartner?.name,
-                };
-                onAddExpense(newExp);
+                const descText = expDesc.trim() || 'Office Expense';
+                const amtNum = Math.max(0, Number(expAmount) || 0);
+                const dateText = expDate.trim() || '15-05-2026';
+
+                if (
+                  isMonthlyRecurring &&
+                  (recurringSchedule === 'all_months' ||
+                    recurringSchedule === 'from_current')
+                ) {
+                  const startIdx =
+                    recurringSchedule === 'from_current'
+                      ? AVAILABLE_MONTHS.indexOf(selectedMonth)
+                      : 0;
+                  const targetMonths = AVAILABLE_MONTHS.slice(
+                    Math.max(0, startIdx)
+                  );
+                  const groupId = `recgroup-${Date.now()}`;
+                  const generated: ExpenseItem[] = targetMonths.map((m) => ({
+                    id: `exp-${Date.now()}-${m.replace(/[^a-zA-Z0-9]/g, '_')}-${Math.random().toString(36).substring(2, 6)}`,
+                    description: descText,
+                    amount: amtNum,
+                    category: expCategory,
+                    date: getIssueDateForMonth(m, dateText),
+                    month: m,
+                    partnerId: linkedPartner?.id,
+                    partnerName: linkedPartner?.name,
+                    status: expStatus,
+                    isPaid: expStatus === 'Paid',
+                    amountPaid: expStatus === 'Paid' ? amtNum : 0,
+                    isMonthlyRecurring: true,
+                    recurringGroupId: groupId,
+                  }));
+
+                  if (onAddExpenses) {
+                    onAddExpenses(generated);
+                  } else {
+                    generated.forEach((item) => onAddExpense(item));
+                  }
+                } else {
+                  const newExp: ExpenseItem = {
+                    id: `exp-${Date.now()}`,
+                    description: descText,
+                    amount: amtNum,
+                    category: expCategory,
+                    date: dateText,
+                    month: selectedMonth,
+                    partnerId: linkedPartner?.id,
+                    partnerName: linkedPartner?.name,
+                    status: expStatus,
+                    isPaid: expStatus === 'Paid',
+                    amountPaid: expStatus === 'Paid' ? amtNum : 0,
+                    isMonthlyRecurring,
+                    recurringGroupId: isMonthlyRecurring
+                      ? `recgroup-${Date.now()}`
+                      : undefined,
+                  };
+                  onAddExpense(newExp);
+                }
+
                 setExpDesc('');
                 setExpAmount('');
+                setIsMonthlyRecurring(false);
               }}
               className="space-y-4 text-xs"
             >
@@ -514,6 +573,20 @@ export const FinanceAndSettingsViews: React.FC<
 
               <div>
                 <label className="block font-medium text-slate-600 mb-1">
+                  Payment Status
+                </label>
+                <select
+                  value={expStatus}
+                  onChange={(e) => setExpStatus(e.target.value as 'Paid' | 'Unpaid')}
+                  className="w-full px-3.5 py-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:border-blue-600 focus:outline-none font-semibold text-slate-800"
+                >
+                  <option value="Paid">Paid (Deduct from balance)</option>
+                  <option value="Unpaid">Unpaid (Pending payment)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-600 mb-1">
                   Date
                 </label>
                 <input
@@ -523,6 +596,68 @@ export const FinanceAndSettingsViews: React.FC<
                   placeholder="15-05-2026"
                   className="w-full px-3.5 py-2.5 text-sm font-mono rounded-lg border border-slate-200 focus:border-blue-600 focus:outline-none"
                 />
+              </div>
+
+              {/* Monthly Recurring Expense Option */}
+              <div className="p-3.5 rounded-xl border border-indigo-100 bg-indigo-50/50 space-y-2.5">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isMonthlyRecurring}
+                    onChange={(e) => setIsMonthlyRecurring(e.target.checked)}
+                    className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Repeat className="w-3.5 h-3.5 text-indigo-600" />
+                      Monthly Recurring Expense (Pay Every Month)
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Check for bills paid every month (e.g. Office Rent, Internet, Salaries, Software/Hosting).
+                    </p>
+                  </div>
+                </label>
+
+                {isMonthlyRecurring && (
+                  <div className="pt-2 border-t border-indigo-200/60 space-y-2 text-[11px]">
+                    <div className="font-semibold text-slate-700">Recurring Schedule:</div>
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="recurringSchedule"
+                          value="all_months"
+                          checked={recurringSchedule === 'all_months'}
+                          onChange={() => setRecurringSchedule('all_months')}
+                          className="text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>Apply across all months of the year ({AVAILABLE_MONTHS.length} months)</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="recurringSchedule"
+                          value="from_current"
+                          checked={recurringSchedule === 'from_current'}
+                          onChange={() => setRecurringSchedule('from_current')}
+                          className="text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>Apply starting from {selectedMonth} to end of year</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="recurringSchedule"
+                          value="single"
+                          checked={recurringSchedule === 'single'}
+                          onChange={() => setRecurringSchedule('single')}
+                          className="text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>Only log for {selectedMonth} (Flagged as recurring)</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button
@@ -548,6 +683,7 @@ export const FinanceAndSettingsViews: React.FC<
                       <th className="py-3 px-3">Description</th>
                       <th className="py-3 px-3 text-right">Amount</th>
                       <th className="py-3 px-3">Category</th>
+                      <th className="py-3 px-3">Status</th>
                       <th className="py-3 px-3">Date</th>
                       <th className="py-3 px-3 text-right">Action</th>
                     </tr>
@@ -556,7 +692,7 @@ export const FinanceAndSettingsViews: React.FC<
                     {monthExpensesList.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={5}
+                          colSpan={6}
                           className="py-8 text-center text-slate-400"
                         >
                           No expenses logged for {selectedMonth}.
@@ -567,6 +703,11 @@ export const FinanceAndSettingsViews: React.FC<
                         <tr key={exp.id} className="hover:bg-slate-50/80">
                           <td className="py-3.5 px-3 font-semibold text-slate-900">
                             {exp.description}
+                            {exp.isMonthlyRecurring && (
+                              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                <Repeat className="w-2.5 h-2.5" /> Monthly
+                              </span>
+                            )}
                             {exp.partnerName && (
                               <span className="ml-1.5 text-[11px] font-normal text-blue-600">
                                 ({exp.partnerName})
@@ -578,6 +719,31 @@ export const FinanceAndSettingsViews: React.FC<
                           </td>
                           <td className="py-3.5 px-3 text-slate-600">
                             {exp.category}
+                          </td>
+                          <td className="py-3.5 px-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!onUpdateExpense) return;
+                                const currentStatus = exp.status || (exp.isPaid !== false ? 'Paid' : 'Unpaid');
+                                const nextStatus = currentStatus === 'Paid' ? 'Unpaid' : 'Paid';
+                                onUpdateExpense({
+                                  ...exp,
+                                  status: nextStatus,
+                                  isPaid: nextStatus === 'Paid',
+                                  amountPaid: nextStatus === 'Paid' ? exp.amount : 0,
+                                });
+                              }}
+                              className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1.5 transition-colors shadow-2xs ${
+                                (exp.status || (exp.isPaid !== false ? 'Paid' : 'Unpaid')) === 'Paid'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                              }`}
+                              title="Click to toggle Paid / Unpaid status"
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${(exp.status || (exp.isPaid !== false ? 'Paid' : 'Unpaid')) === 'Paid' ? 'bg-emerald-600' : 'bg-rose-600'}`} />
+                              <span>{exp.status || (exp.isPaid !== false ? 'Paid' : 'Unpaid')}</span>
+                            </button>
                           </td>
                           <td className="py-3.5 px-3 font-mono text-slate-500">
                             {exp.date}
@@ -2888,13 +3054,14 @@ export const FinanceAndSettingsViews: React.FC<
 
         {/* Monthly Overview Chart */}
         <RevenueExpenseChart
-          title="Monthly Revenue Overview"
+          title="Monthly Financial Overview"
           activeMonth={selectedMonth}
-          activeMonthRevenue={monthlyRevenue}
-          activeMonthExpenses={monthlyExpenses}
+          activeMonthRevenue={displayCollected}
+          activeMonthExpenses={displayExpenses}
           activeMonthToBeCollected={displayToBeCollected}
           currency={currency}
-          showExpenses={false}
+          showExpenses={true}
+          monthlyBreakdown={realizedMonthlyRows}
         />
       </div>
     );
