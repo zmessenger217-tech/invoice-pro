@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   CreditCard,
   Download,
+  Edit3,
   Eye,
   FileText,
   Plus,
@@ -147,11 +148,10 @@ export const FinanceAndSettingsViews: React.FC<
   const [expCategory, setExpCategory] =
     useState<ExpenseCategory>('Office Expenses');
   const [expPartnerId, setExpPartnerId] = useState<string>('');
-  const [expStatus, setExpStatus] = useState<'Paid' | 'Unpaid'>('Paid');
-  const [isMonthlyRecurring, setIsMonthlyRecurring] = useState(false);
-  const [recurringSchedule, setRecurringSchedule] = useState<
-    'all_months' | 'from_current' | 'single'
-  >('all_months');
+  const [expStatus, setExpStatus] = useState<'Paid' | 'Partially Paid' | 'Unpaid'>('Unpaid');
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [paymentExpenseModal, setPaymentExpenseModal] = useState<ExpenseItem | null>(null);
+  const [expensePaymentInput, setExpensePaymentInput] = useState('');
   const [expDate, setExpDate] = useState(() =>
     getIssueDateForMonth(selectedMonth)
   );
@@ -425,9 +425,25 @@ export const FinanceAndSettingsViews: React.FC<
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left: Add Expense Form */}
           <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-6">
-            <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <Plus className="w-4 h-4 text-blue-600" />
-              <span>Add Expense</span>
+            <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Plus className={`w-4 h-4 ${editingExpenseId ? 'text-amber-600' : 'text-blue-600'}`} />
+                <span>{editingExpenseId ? 'Edit Expense' : 'Add Expense'}</span>
+              </div>
+              {editingExpenseId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingExpenseId(null);
+                    setExpDesc('');
+                    setExpAmount('');
+                    setExpStatus('Unpaid');
+                  }}
+                  className="text-xs font-medium text-slate-500 hover:text-slate-800 underline"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </h2>
 
             <form
@@ -440,41 +456,34 @@ export const FinanceAndSettingsViews: React.FC<
                 const amtNum = Math.max(0, Number(expAmount) || 0);
                 const dateText = expDate.trim() || '15-05-2026';
 
-                if (
-                  isMonthlyRecurring &&
-                  (recurringSchedule === 'all_months' ||
-                    recurringSchedule === 'from_current')
-                ) {
-                  const startIdx =
-                    recurringSchedule === 'from_current'
-                      ? AVAILABLE_MONTHS.indexOf(selectedMonth)
-                      : 0;
-                  const targetMonths = AVAILABLE_MONTHS.slice(
-                    Math.max(0, startIdx)
-                  );
-                  const groupId = `recgroup-${Date.now()}`;
-                  const generated: ExpenseItem[] = targetMonths.map((m) => ({
-                    id: `exp-${Date.now()}-${m.replace(/[^a-zA-Z0-9]/g, '_')}-${Math.random().toString(36).substring(2, 6)}`,
-                    description: descText,
-                    amount: amtNum,
-                    category: expCategory,
-                    date: getIssueDateForMonth(m, dateText),
-                    month: m,
-                    partnerId: linkedPartner?.id,
-                    partnerName: linkedPartner?.name,
-                    status: expStatus,
-                    isPaid: expStatus === 'Paid',
-                    amountPaid: expStatus === 'Paid' ? amtNum : 0,
-                    isMonthlyRecurring: true,
-                    recurringGroupId: groupId,
-                  }));
-
-                  if (onAddExpenses) {
-                    onAddExpenses(generated);
-                  } else {
-                    generated.forEach((item) => onAddExpense(item));
+                if (editingExpenseId) {
+                  const targetExp =
+                    monthExpensesList.find((e) => e.id === editingExpenseId) ||
+                    expenses.find((e) => e.id === editingExpenseId);
+                  if (targetExp && onUpdateExpense) {
+                    const paidAmt =
+                      expStatus === 'Paid'
+                        ? amtNum
+                        : expStatus === 'Partially Paid'
+                        ? Math.min(amtNum, targetExp.amountPaid || Math.round(amtNum / 2))
+                        : 0;
+                    onUpdateExpense({
+                      ...targetExp,
+                      description: descText,
+                      amount: amtNum,
+                      category: expCategory,
+                      date: dateText,
+                      month: selectedMonth,
+                      status: expStatus,
+                      isPaid: expStatus === 'Paid',
+                      amountPaid: paidAmt,
+                      partnerId: linkedPartner?.id,
+                      partnerName: linkedPartner?.name,
+                    });
                   }
+                  setEditingExpenseId(null);
                 } else {
+                  // Expenses other than partner are strictly for this selected month only
                   const newExp: ExpenseItem = {
                     id: `exp-${Date.now()}`,
                     description: descText,
@@ -487,17 +496,13 @@ export const FinanceAndSettingsViews: React.FC<
                     status: expStatus,
                     isPaid: expStatus === 'Paid',
                     amountPaid: expStatus === 'Paid' ? amtNum : 0,
-                    isMonthlyRecurring,
-                    recurringGroupId: isMonthlyRecurring
-                      ? `recgroup-${Date.now()}`
-                      : undefined,
                   };
                   onAddExpense(newExp);
                 }
 
                 setExpDesc('');
                 setExpAmount('');
-                setIsMonthlyRecurring(false);
+                setExpStatus('Unpaid');
               }}
               className="space-y-4 text-xs"
             >
@@ -577,11 +582,16 @@ export const FinanceAndSettingsViews: React.FC<
                 </label>
                 <select
                   value={expStatus}
-                  onChange={(e) => setExpStatus(e.target.value as 'Paid' | 'Unpaid')}
+                  onChange={(e) =>
+                    setExpStatus(
+                      e.target.value as 'Paid' | 'Partially Paid' | 'Unpaid'
+                    )
+                  }
                   className="w-full px-3.5 py-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:border-blue-600 focus:outline-none font-semibold text-slate-800"
                 >
-                  <option value="Paid">Paid (Deduct from balance)</option>
                   <option value="Unpaid">Unpaid (Pending payment)</option>
+                  <option value="Partially Paid">Partially Paid</option>
+                  <option value="Paid">Paid in Full</option>
                 </select>
               </div>
 
@@ -598,73 +608,23 @@ export const FinanceAndSettingsViews: React.FC<
                 />
               </div>
 
-              {/* Monthly Recurring Expense Option */}
-              <div className="p-3.5 rounded-xl border border-indigo-100 bg-indigo-50/50 space-y-2.5">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isMonthlyRecurring}
-                    onChange={(e) => setIsMonthlyRecurring(e.target.checked)}
-                    className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <div>
-                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      <Repeat className="w-3.5 h-3.5 text-indigo-600" />
-                      Monthly Recurring Expense (Pay Every Month)
-                    </span>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Check for bills paid every month (e.g. Office Rent, Internet, Salaries, Software/Hosting).
-                    </p>
-                  </div>
-                </label>
-
-                {isMonthlyRecurring && (
-                  <div className="pt-2 border-t border-indigo-200/60 space-y-2 text-[11px]">
-                    <div className="font-semibold text-slate-700">Recurring Schedule:</div>
-                    <div className="space-y-1.5">
-                      <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="recurringSchedule"
-                          value="all_months"
-                          checked={recurringSchedule === 'all_months'}
-                          onChange={() => setRecurringSchedule('all_months')}
-                          className="text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span>Apply across all months of the year ({AVAILABLE_MONTHS.length} months)</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="recurringSchedule"
-                          value="from_current"
-                          checked={recurringSchedule === 'from_current'}
-                          onChange={() => setRecurringSchedule('from_current')}
-                          className="text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span>Apply starting from {selectedMonth} to end of year</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="recurringSchedule"
-                          value="single"
-                          checked={recurringSchedule === 'single'}
-                          onChange={() => setRecurringSchedule('single')}
-                          className="text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span>Only log for {selectedMonth} (Flagged as recurring)</span>
-                      </label>
-                    </div>
-                  </div>
-                )}
+              {/* Month Scope Indicator */}
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>
+                  This expense will only apply to <strong>{selectedMonth}</strong> and will not reoccur in other months.
+                </span>
               </div>
 
               <button
                 type="submit"
-                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors"
+                className={`w-full py-2.5 px-4 text-white font-semibold text-sm rounded-lg transition-colors ${
+                  editingExpenseId
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
               >
-                Add Expense
+                {editingExpenseId ? 'Update Expense' : 'Add Expense'}
               </button>
             </form>
           </div>
@@ -703,11 +663,6 @@ export const FinanceAndSettingsViews: React.FC<
                         <tr key={exp.id} className="hover:bg-slate-50/80">
                           <td className="py-3.5 px-3 font-semibold text-slate-900">
                             {exp.description}
-                            {exp.isMonthlyRecurring && (
-                              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                <Repeat className="w-2.5 h-2.5" /> Monthly
-                              </span>
-                            )}
                             {exp.partnerName && (
                               <span className="ml-1.5 text-[11px] font-normal text-blue-600">
                                 ({exp.partnerName})
@@ -721,42 +676,116 @@ export const FinanceAndSettingsViews: React.FC<
                             {exp.category}
                           </td>
                           <td className="py-3.5 px-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!onUpdateExpense) return;
-                                const currentStatus = exp.status || (exp.isPaid !== false ? 'Paid' : 'Unpaid');
-                                const nextStatus = currentStatus === 'Paid' ? 'Unpaid' : 'Paid';
-                                onUpdateExpense({
-                                  ...exp,
-                                  status: nextStatus,
-                                  isPaid: nextStatus === 'Paid',
-                                  amountPaid: nextStatus === 'Paid' ? exp.amount : 0,
-                                });
-                              }}
-                              className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1.5 transition-colors shadow-2xs ${
-                                (exp.status || (exp.isPaid !== false ? 'Paid' : 'Unpaid')) === 'Paid'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-                                  : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
-                              }`}
-                              title="Click to toggle Paid / Unpaid status"
-                            >
-                              <span className={`w-1.5 h-1.5 rounded-full ${(exp.status || (exp.isPaid !== false ? 'Paid' : 'Unpaid')) === 'Paid' ? 'bg-emerald-600' : 'bg-rose-600'}`} />
-                              <span>{exp.status || (exp.isPaid !== false ? 'Paid' : 'Unpaid')}</span>
-                            </button>
+                            {(() => {
+                              const status =
+                                exp.status ||
+                                (exp.amountPaid !== undefined &&
+                                exp.amountPaid >= exp.amount
+                                  ? 'Paid'
+                                  : exp.amountPaid && exp.amountPaid > 0
+                                  ? 'Partially Paid'
+                                  : 'Unpaid');
+                              const badgeColor =
+                                status === 'Paid'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : status === 'Partially Paid'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200';
+                              const dotColor =
+                                status === 'Paid'
+                                  ? 'bg-emerald-600'
+                                  : status === 'Partially Paid'
+                                  ? 'bg-amber-500'
+                                  : 'bg-rose-600';
+                              return (
+                                <span
+                                  className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1.5 border ${badgeColor}`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+                                  <span>{status}</span>
+                                  {exp.amountPaid !== undefined && exp.amountPaid > 0 && exp.amountPaid < exp.amount && (
+                                    <span className="font-mono text-[10px] ml-1">
+                                      ({formatCurrency(exp.amountPaid, currency)})
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="py-3.5 px-3 font-mono text-slate-500">
                             {exp.date}
                           </td>
                           <td className="py-3.5 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => onDeleteExpense(exp.id)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
-                              title="Remove Expense"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingExpenseId(exp.id);
+                                  setExpDesc(exp.description);
+                                  setExpAmount(String(exp.amount));
+                                  setExpCategory(exp.category);
+                                  setExpStatus(
+                                    exp.status ||
+                                      (exp.amountPaid !== undefined &&
+                                      exp.amountPaid >= exp.amount
+                                        ? 'Paid'
+                                        : exp.amountPaid && exp.amountPaid > 0
+                                        ? 'Partially Paid'
+                                        : 'Unpaid')
+                                  );
+                                  setExpDate(exp.date);
+                                  setExpPartnerId(exp.partnerId || '');
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg transition-colors"
+                                title="Edit Expense"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!onUpdateExpense) return;
+                                  onUpdateExpense({
+                                    ...exp,
+                                    amountPaid: exp.amount,
+                                    status: 'Paid',
+                                    isPaid: true,
+                                  });
+                                }}
+                                className="px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors shadow-2xs"
+                                title="Click to instantly mark expense as Paid in Full"
+                              >
+                                Pay
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPaymentExpenseModal(exp);
+                                  setExpensePaymentInput(
+                                    String(
+                                      Math.max(
+                                        0,
+                                        exp.amount - (exp.amountPaid || 0)
+                                      )
+                                    )
+                                  );
+                                }}
+                                className="px-2 py-1 text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors shadow-2xs"
+                                title="Make Partial Payment"
+                              >
+                                Partial
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDeleteExpense(exp.id)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
+                                title="Remove Expense"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -805,6 +834,140 @@ export const FinanceAndSettingsViews: React.FC<
             </div>
           </div>
         </div>
+
+        {/* Quick Payment / Partial Payment Modal for Expense */}
+        {paymentExpenseModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Make Expense Payment</h3>
+                    <p className="text-xs text-slate-500">{paymentExpenseModal.description}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPaymentExpenseModal(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {(() => {
+                const totalAmt = paymentExpenseModal.amount;
+                const alreadyPaid = paymentExpenseModal.amountPaid || 0;
+                const maxPayable = Math.max(0, totalAmt - alreadyPaid);
+                const entering = Math.max(0, Number(expensePaymentInput) || 0);
+                const remainingDues = Math.max(0, totalAmt - alreadyPaid - entering);
+
+                return (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!onUpdateExpense) return;
+                      const payAmt = Math.max(0, Number(expensePaymentInput) || 0);
+                      const newTotalPaid = Math.min(totalAmt, alreadyPaid + payAmt);
+                      const isFull = newTotalPaid >= totalAmt;
+                      const newStatus: 'Paid' | 'Partially Paid' | 'Unpaid' =
+                        isFull
+                          ? 'Paid'
+                          : newTotalPaid > 0
+                          ? 'Partially Paid'
+                          : 'Unpaid';
+
+                      onUpdateExpense({
+                        ...paymentExpenseModal,
+                        amountPaid: newTotalPaid,
+                        status: newStatus,
+                        isPaid: isFull,
+                      });
+                      setPaymentExpenseModal(null);
+                    }}
+                    className="space-y-4 text-xs"
+                  >
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                        <div className="text-slate-500 text-[10px]">Total Amount</div>
+                        <div className="text-xs font-bold font-mono text-slate-900 mt-0.5">
+                          {formatCurrency(totalAmt, currency)}
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-200">
+                        <div className="text-emerald-700 text-[10px]">Already Paid</div>
+                        <div className="text-xs font-bold font-mono text-emerald-800 mt-0.5">
+                          {formatCurrency(alreadyPaid, currency)}
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-rose-50/50 rounded-xl border border-rose-200">
+                        <div className="text-rose-700 text-[10px]">Remaining Dues</div>
+                        <div className="text-xs font-bold font-mono text-rose-800 mt-0.5">
+                          {formatCurrency(remainingDues, currency)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-medium text-slate-700">
+                          Payment Amount ({currency})
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setExpensePaymentInput(String(maxPayable))}
+                            className="px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200"
+                          >
+                            Full Due ({formatCurrency(maxPayable, currency)})
+                          </button>
+                          {maxPayable > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setExpensePaymentInput(String(Math.round(maxPayable / 2)))}
+                              className="px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded border border-amber-200"
+                            >
+                              50% ({formatCurrency(Math.round(maxPayable / 2), currency)})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={maxPayable}
+                        value={expensePaymentInput}
+                        onChange={(e) => setExpensePaymentInput(e.target.value)}
+                        placeholder="Enter amount to pay"
+                        className="w-full px-3.5 py-2.5 text-sm font-mono rounded-lg border border-slate-200 focus:border-blue-600 focus:outline-none"
+                        autoFocus
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentExpenseModal(null)}
+                        className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-xs"
+                      >
+                        Record Payment
+                      </button>
+                    </div>
+                  </form>
+                );
+              })()}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

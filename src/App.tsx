@@ -842,10 +842,18 @@ export default function App() {
           (e) =>
             e.month === selectedMonth &&
             e.category !== 'Partner Payout' &&
-            !e.partnerId &&
-            (e.status === 'Paid' || e.isPaid !== false)
+            !e.partnerId
         )
-        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
+        .reduce((sum, e) => {
+          const amt = Number(e.amount) || 0;
+          const paid =
+            e.amountPaid !== undefined
+              ? Number(e.amountPaid)
+              : e.status === 'Paid' || e.isPaid !== false
+              ? amt
+              : 0;
+          return sum + paid;
+        }, 0),
     [activeExpenses, selectedMonth]
   );
 
@@ -874,10 +882,18 @@ export default function App() {
           (e) =>
             e.month === m &&
             e.category !== 'Partner Payout' &&
-            !e.partnerId &&
-            (e.status === 'Paid' || e.isPaid !== false)
+            !e.partnerId
         )
-        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+        .reduce((sum, e) => {
+          const amt = Number(e.amount) || 0;
+          const paid =
+            e.amountPaid !== undefined
+              ? Number(e.amountPaid)
+              : e.status === 'Paid' || e.isPaid !== false
+              ? amt
+              : 0;
+          return sum + paid;
+        }, 0);
       const totalExp = partnerExp + directExp;
       const dues = activeForMonth.reduce(
         (sum, c) => sum + getOrComputeMonthlyRecord(c, m).remainingDues,
@@ -2975,6 +2991,7 @@ export default function App() {
               company={company}
               term={term}
               clients={clients}
+              expenses={activeExpenses}
               partners={partners}
               accounts={accounts}
               selectedMonth={selectedMonth}

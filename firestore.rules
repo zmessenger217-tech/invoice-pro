@@ -108,12 +108,17 @@ service cloud.firestore {
           'ownerId', 'description', 'amount', 'category', 'date', 'month', 'partnerName', 'createdAt', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'ownerId', 'description', 'amount', 'category', 'date', 'month', 'partnerName', 'createdAt', 'updatedAt'
+          'ownerId', 'description', 'amount', 'category', 'date', 'month', 'partnerName', 'amountPaid', 'status', 'isPaid', 'isMonthlyRecurring', 'recurringGroupId', 'createdAt', 'updatedAt'
         ]) &&
         data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
         data.ownerId == request.auth.uid &&
         data.description is string && data.description.size() >= 1 && data.description.size() <= 160 &&
         data.amount is number && data.amount >= 0 &&
+        (!('amountPaid' in data) || (data.amountPaid is number && data.amountPaid >= 0)) &&
+        (!('status' in data) || (data.status is string && data.status in ['Paid', 'Partially Paid', 'Unpaid'])) &&
+        (!('isPaid' in data) || data.isPaid is bool) &&
+        (!('isMonthlyRecurring' in data) || data.isMonthlyRecurring is bool) &&
+        (!('recurringGroupId' in data) || (data.recurringGroupId is string && data.recurringGroupId.size() <= 80)) &&
         data.category is string && data.category in [
           'Office Expenses',
           'Salaries',
@@ -251,7 +256,7 @@ service cloud.firestore {
           incoming().updatedAt == request.time &&
           (
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'description', 'amount', 'category', 'date', 'month', 'partnerName', 'updatedAt'
+              'description', 'amount', 'category', 'date', 'month', 'partnerName', 'amountPaid', 'status', 'isPaid', 'isMonthlyRecurring', 'recurringGroupId', 'updatedAt'
             ])
           ) &&
           isWorkspaceOwner(userId);

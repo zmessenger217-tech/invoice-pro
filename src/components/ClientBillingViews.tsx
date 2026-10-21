@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Plus,
   Printer,
+  Receipt,
   Search,
   Sparkles,
   Trash2,
@@ -40,6 +41,7 @@ import {
   ActiveNavTab,
   ClientEntity,
   CompanyProfile,
+  ExpenseItem,
   PartnerItem,
   PaymentTransaction,
 } from '../types';
@@ -52,6 +54,7 @@ interface ClientBillingViewsProps {
   company: CompanyProfile;
   term: CategoryTerminology;
   clients: ClientEntity[];
+  expenses?: ExpenseItem[];
   partners?: PartnerItem[];
   accounts?: AccountItem[];
   selectedMonth: string;
@@ -109,6 +112,7 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
   company,
   term,
   clients,
+  expenses = [],
   partners = [],
   accounts = [],
   selectedMonth,
@@ -646,6 +650,40 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     return matchesSearch && matchesStatus;
   });
 
+  // Dedicated calculations for direct operating expenses, partner expenses, and total combined expenses
+  const monthDirectExpensesList = expenses.filter(
+    (e) =>
+      e.month === selectedMonth &&
+      e.category !== 'Partner Payout' &&
+      !e.partnerId
+  );
+  const totalDirectExpenses = monthDirectExpensesList.reduce(
+    (sum, e) => sum + (Number(e.amount) || 0),
+    0
+  );
+  const directExpensesPaid = monthDirectExpensesList.reduce((sum, e) => {
+    const amt = Number(e.amount) || 0;
+    const paid =
+      e.amountPaid !== undefined
+        ? Number(e.amountPaid)
+        : e.status === 'Paid' || e.isPaid !== false
+        ? amt
+        : 0;
+    return sum + paid;
+  }, 0);
+  const directExpensesDues = Math.max(0, totalDirectExpenses - directExpensesPaid);
+
+  const totalPartnerExpenses = totalPartnerPaymentCut;
+  const partnerExpensesPaid = partnerPayoutsTotal;
+  const partnerExpensesDues = Math.max(
+    0,
+    totalPartnerExpenses - partnerExpensesPaid
+  );
+
+  const totalCombinedExpenses = totalDirectExpenses + totalPartnerExpenses;
+  const totalCombinedPaid = directExpensesPaid + partnerExpensesPaid;
+  const totalCombinedDues = directExpensesDues + partnerExpensesDues;
+
   // 4. MAIN DASHBOARD VIEW
   if (activeTab === 'dashboard') {
     return (
@@ -764,36 +802,96 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             </div>
           </div>
 
+          {/* Total Expenses Card */}
+          <div className="bg-white rounded-xl border border-rose-200 bg-rose-50/20 p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                <span>Total Expenses</span>
+                <span className="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-semibold border border-rose-200">
+                  Combined
+                </span>
+              </div>
+              <div className="text-xl sm:text-2xl font-bold text-rose-600 font-mono tabular-nums mt-1.5">
+                {formatCurrency(totalCombinedPaid, currency)}{' '}
+                <span className="text-sm font-semibold text-slate-400">
+                  / {formatCurrency(totalCombinedExpenses, currency)}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                Out of {formatCurrency(totalCombinedExpenses, currency)} total combined expenses
+              </div>
+              <div className="text-[11px] font-semibold text-rose-700 mt-1">
+                Total Expenses Dues: {formatCurrency(totalCombinedDues, currency)}
+              </div>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+              <TrendingDown className="w-5 h-5" />
+            </div>
+          </div>
+
+          {/* Monthly Expenses Card (Direct Operating Expenses) */}
           <div
             role="button"
             tabIndex={0}
             onClick={() => setActiveTab('expenses')}
             onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setActiveTab('expenses')}
-            className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between cursor-pointer hover:border-rose-300 hover:shadow-sm transition-all group"
+            className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between cursor-pointer hover:border-amber-400 hover:shadow-sm transition-all group"
           >
             <div>
-              <div className="text-xs font-medium text-slate-500 group-hover:text-rose-700 transition-colors flex items-center gap-1.5">
+              <div className="text-xs font-medium text-slate-500 group-hover:text-amber-700 transition-colors flex items-center gap-1.5">
                 <span>Monthly Expenses</span>
-                <span className="text-[10px] bg-rose-50 text-rose-600 px-1.5 py-0.2 rounded font-semibold border border-rose-100">
+                <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-semibold border border-amber-200">
                   Manage &amp; Add →
                 </span>
               </div>
-              <div className="text-xl sm:text-2xl font-bold text-rose-600 font-mono tabular-nums mt-1.5">
-                {formatCurrency(monthlyExpenses, currency)}{' '}
+              <div className="text-xl sm:text-2xl font-bold text-amber-600 font-mono tabular-nums mt-1.5">
+                {formatCurrency(directExpensesPaid, currency)}{' '}
                 <span className="text-sm font-semibold text-slate-400">
-                  / {formatCurrency(totalPartnerPaymentCut, currency)}
+                  / {formatCurrency(totalDirectExpenses, currency)}
                 </span>
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                Out of {formatCurrency(totalPartnerPaymentCut, currency)} total partner payment cut
+                Out of {formatCurrency(totalDirectExpenses, currency)} total monthly expenses
               </div>
-              <div className="text-[11px] font-semibold text-amber-600 mt-1">
-                Partner Dues: {formatCurrency(Math.max(0, totalPartnerPaymentCut - partnerPayoutsTotal), currency)}
+              <div className="text-[11px] font-semibold text-amber-700 mt-1">
+                Operating Dues: {formatCurrency(directExpensesDues, currency)}
               </div>
-
             </div>
-            <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 group-hover:bg-rose-100 transition-colors">
-              <TrendingDown className="w-5 h-5" />
+            <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 group-hover:bg-amber-100 transition-colors">
+              <Receipt className="w-5 h-5" />
+            </div>
+          </div>
+
+          {/* Partner Expenses Card */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setActiveTab('partners')}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setActiveTab('partners')}
+            className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between cursor-pointer hover:border-indigo-400 hover:shadow-sm transition-all group"
+          >
+            <div>
+              <div className="text-xs font-medium text-slate-500 group-hover:text-indigo-700 transition-colors flex items-center gap-1.5">
+                <span>Partner Expenses</span>
+                <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-semibold border border-indigo-200">
+                  View Partners →
+                </span>
+              </div>
+              <div className="text-xl sm:text-2xl font-bold text-indigo-600 font-mono tabular-nums mt-1.5">
+                {formatCurrency(partnerExpensesPaid, currency)}{' '}
+                <span className="text-sm font-semibold text-slate-400">
+                  / {formatCurrency(totalPartnerExpenses, currency)}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                Out of {formatCurrency(totalPartnerExpenses, currency)} total partner cut
+              </div>
+              <div className="text-[11px] font-semibold text-indigo-700 mt-1">
+                Partner Dues: {formatCurrency(partnerExpensesDues, currency)}
+              </div>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 group-hover:bg-indigo-100 transition-colors">
+              <Users className="w-5 h-5" />
             </div>
           </div>
 
@@ -845,10 +943,10 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                 Amount After All Expenses
               </div>
               <div className="text-2xl font-bold text-violet-700 font-mono tabular-nums mt-1.5">
-                {formatCurrency(monthlyRevenue - monthlyExpenses, currency)}
+                {formatCurrency(monthlyRevenue - totalCombinedPaid, currency)}
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                Net Profit after deducting all expenses
+                Net cash balance after deducting all paid expenses
               </div>
             </div>
             <div className="w-11 h-11 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center font-bold text-sm">
