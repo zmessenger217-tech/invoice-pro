@@ -5,6 +5,7 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  CreditCard,
   Download,
   Edit3,
   Eye,
@@ -42,6 +43,7 @@ import {
   ClientEntity,
   CompanyProfile,
   ExpenseItem,
+  MonthlyLedgerRecord,
   PartnerItem,
   PaymentTransaction,
 } from '../types';
@@ -508,39 +510,67 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
       partnerNote: partnerNote.trim() || undefined,
     };
 
-    const newClient: ClientEntity = {
-      id,
-      name: clientName.trim(),
-      address: clientAddress.trim(),
-      phone: clientPhone.trim(),
-      ownerName: clientOwnerName.trim() || undefined,
-      enabled: existingClient ? existingClient.enabled : true,
-      createdAt: existingClient?.createdAt || '2026-05-15',
-      softwareEnabled,
-      softwareCharges: numSoftware,
-      whatsappEnabled,
-      whatsappBillingType,
-      whatsappRate: whatsappBillingType === 'per_month' ? 0 : numRate,
-      whatsappMessages: whatsappBillingType === 'per_month' ? 0 : numMessages,
-      whatsappCharges: calculatedWhatsappTotal,
-      chatbotEnabled,
-      chatbotCharges: numChatbot,
-      partnerId: partnerPaymentEnabled && partnerId ? partnerId : undefined,
-      partnerName:
-        partnerPaymentEnabled && selectedPartnerObj
-          ? selectedPartnerObj.name
-          : undefined,
-      partnerPaymentEnabled: partnerPaymentEnabled && Boolean(partnerId),
-      partnerSoftwareCharges: numPartnerSoftware,
-      partnerWhatsappCharges: numPartnerWhatsapp,
-      partnerChatbotCharges: numPartnerChatbot,
-      partnerTotalPayment: calculatedPartnerTotal,
-      partnerNote: partnerNote.trim() || undefined,
-      monthlyRecords: {
+      // Keep fee structure descriptions and charges consistent across all monthly records for this school
+      const updatedMonthlyRecords: Record<string, MonthlyLedgerRecord> = {
         ...(existingClient?.monthlyRecords || {}),
-        [selectedMonth]: updatedRecord,
-      },
-    };
+      };
+      Object.keys(updatedMonthlyRecords).forEach((m) => {
+        const rec = updatedMonthlyRecords[m];
+        if (rec && rec.amountPaid === 0 && !rec.invoiceGenerated) {
+          const curTotal = numSoftware + calculatedWhatsappTotal + numChatbot;
+          const tot = curTotal + rec.previousDues;
+          updatedMonthlyRecords[m] = {
+            ...rec,
+            softwareCharges: numSoftware,
+            whatsappBillingType,
+            whatsappRate: whatsappBillingType === 'per_month' ? 0 : numRate,
+            whatsappMessages: whatsappBillingType === 'per_month' ? 0 : numMessages,
+            whatsappCharges: calculatedWhatsappTotal,
+            chatbotCharges: numChatbot,
+            currentMonthTotal: curTotal,
+            totalAmount: tot,
+            remainingDues: Math.max(0, tot - rec.amountPaid),
+            status: tot === 0 ? 'Paid' : 'Unpaid',
+            partnerSoftwareCharges: numPartnerSoftware,
+            partnerWhatsappCharges: numPartnerWhatsapp,
+            partnerChatbotCharges: numPartnerChatbot,
+            partnerTotalPayment: calculatedPartnerTotal,
+            partnerNote: partnerNote.trim() || undefined,
+          };
+        }
+      });
+      updatedMonthlyRecords[selectedMonth] = updatedRecord;
+
+      const newClient: ClientEntity = {
+        id,
+        name: clientName.trim(),
+        address: clientAddress.trim(),
+        phone: clientPhone.trim(),
+        ownerName: clientOwnerName.trim() || undefined,
+        enabled: existingClient ? existingClient.enabled : true,
+        createdAt: existingClient?.createdAt || '2026-05-15',
+        softwareEnabled,
+        softwareCharges: numSoftware,
+        whatsappEnabled,
+        whatsappBillingType,
+        whatsappRate: whatsappBillingType === 'per_month' ? 0 : numRate,
+        whatsappMessages: whatsappBillingType === 'per_month' ? 0 : numMessages,
+        whatsappCharges: calculatedWhatsappTotal,
+        chatbotEnabled,
+        chatbotCharges: numChatbot,
+        partnerId: partnerPaymentEnabled && partnerId ? partnerId : undefined,
+        partnerName:
+          partnerPaymentEnabled && selectedPartnerObj
+            ? selectedPartnerObj.name
+            : undefined,
+        partnerPaymentEnabled: partnerPaymentEnabled && Boolean(partnerId),
+        partnerSoftwareCharges: numPartnerSoftware,
+        partnerWhatsappCharges: numPartnerWhatsapp,
+        partnerChatbotCharges: numPartnerChatbot,
+        partnerTotalPayment: calculatedPartnerTotal,
+        partnerNote: partnerNote.trim() || undefined,
+        monthlyRecords: updatedMonthlyRecords,
+      };
 
     onSaveClient(newClient, isNew);
     setClientSavedBanner(
@@ -1757,120 +1787,40 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               </button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse border border-slate-200 rounded-lg overflow-hidden">
-                <thead>
-                  <tr className="bg-slate-50/90 text-[11px] font-semibold text-slate-600">
-                    <th className="py-3 px-3.5 border border-slate-200">{term.singular} Name</th>
-                    <th className="py-3 px-3 text-right border border-slate-200 bg-blue-50/30 text-blue-900">Software Charges</th>
-                    <th className="py-3 px-3 border border-slate-200 bg-emerald-50/30 text-emerald-900">WhatsApp Charges</th>
-                    <th className="py-3 px-3 text-right border border-slate-200 bg-purple-50/30 text-purple-900">Chatbot Charges</th>
-                    <th className="py-3 px-3 text-right border border-slate-200">Prev. Dues</th>
-                    <th className="py-3 px-3 text-right border border-slate-200">Total Amount</th>
-                    <th className="py-3 px-3 text-right border border-slate-200">Paid</th>
-                    <th className="py-3 px-3 text-right border border-slate-200">Dues</th>
-                    <th className="py-3 px-3.5 border border-slate-200">Status</th>
-                    <th className="py-3 px-3 text-right border border-slate-200">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="text-xs">
-                  {filteredLedgerRows.map(({ client, record }) => (
-                    <tr
+            <>
+              {/* Mobile Card View (Easy on Phones & All Touch Devices) */}
+              <div className="block md:hidden space-y-3.5">
+                {filteredLedgerRows.map(({ client, record }) => {
+                  const hasDues = record.remainingDues > 0;
+                  return (
+                    <div
                       key={client.id}
-                      className="hover:bg-slate-50/80 transition-colors"
+                      className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3"
                     >
-                      <td className="py-3.5 px-3.5 font-semibold text-slate-900 border border-slate-200">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span>{client.name}</span>
-                          {(record.partnerPaymentEnabled || client.partnerPaymentEnabled) && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200" title={`Partner: ${record.partnerName || client.partnerName || 'Partner'}`}>
-                              <Users className="w-2.5 h-2.5" />
-                              <span>{record.partnerName || client.partnerName || 'Partner'}: {formatCurrency(record.partnerTotalPayment ?? client.partnerTotalPayment ?? 0, currency)}</span>
+                      {/* Header: School Name, Phone & Status Badge */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-sm text-slate-900 truncate">
+                              {client.name}
                             </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] font-normal text-slate-400">
-                          {client.phone}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-800 border border-slate-200 tabular-nums">
-                        {formatCurrency(
-                          record.softwareCharges * periodMultiplier,
-                          currency
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
-                        {record.whatsappBillingType === 'per_month' ||
-                        (record.whatsappCharges > 0 &&
-                          record.whatsappRate === 0 &&
-                          record.whatsappMessages === 0) ? (
-                          <span className="font-semibold text-slate-800">
-                            {formatCurrency(record.whatsappCharges * periodMultiplier, currency)}
-                          </span>
-                        ) : (
-                          <>
-                            {record.whatsappRate} ×{' '}
-                            {(record.whatsappMessages * periodMultiplier).toLocaleString()} ={' '}
-                            <span className="font-semibold text-slate-800">
-                              {formatCurrency(record.whatsappCharges * periodMultiplier, currency)}
-                            </span>
-                          </>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-800 border border-slate-200 tabular-nums">
-                        {formatCurrency(
-                          record.chatbotCharges * periodMultiplier,
-                          currency
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono tabular-nums text-slate-500 border border-slate-200">
-                        {record.previousDues > 0 ? (
-                          <span className="text-rose-600 font-semibold">
-                            {formatCurrency(record.previousDues, currency)}
-                          </span>
-                        ) : (
-                          `${currency} 0`
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums border border-slate-200">
-                        {formatCurrency(
-                          record.totalAmount * periodMultiplier,
-                          currency
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-emerald-700 tabular-nums border border-slate-200">
-                        <div>
-                          {formatCurrency(
-                            record.amountPaid * periodMultiplier,
-                            currency
-                          )}
-                        </div>
-                        {record.payments && record.payments.length > 0 && (
-                          <div className="text-[10px] font-sans text-slate-500 mt-0.5 leading-tight">
-                            {record.payments[0].day
-                              ? `${record.payments[0].day}, `
-                              : ''}
-                            {record.payments[0].date}
-                            {record.payments[0].time
-                              ? ` · ${record.payments[0].time}`
-                              : ''}
+                            {(record.partnerPaymentEnabled || client.partnerPaymentEnabled) && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                <Users className="w-2.5 h-2.5" />
+                                <span>{record.partnerName || client.partnerName || 'Partner'}</span>
+                              </span>
+                            )}
                           </div>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-semibold text-rose-600 tabular-nums border border-slate-200">
-                        {formatCurrency(
-                          record.remainingDues * periodMultiplier,
-                          currency
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3.5 border border-slate-200">
+                          <div className="text-xs text-slate-500 mt-0.5">{client.phone}</div>
+                        </div>
+
                         <span
-                          className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${
                             record.status === 'Paid'
-                              ? 'text-emerald-700'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                               : record.status === 'Partially Paid'
-                              ? 'text-amber-700'
-                              : 'text-rose-600'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
                           }`}
                         >
                           <span
@@ -1884,83 +1834,328 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                           />
                           <span>{record.status}</span>
                         </span>
-                      </td>
-                      <td className="py-3.5 px-3 text-right border border-slate-200">
-                        <div className="flex items-center justify-end gap-1.5">
+                      </div>
+
+                      {/* Fee Structure Breakdown: Software, WhatsApp, Chatbot */}
+                      <div className="grid grid-cols-3 gap-2 bg-slate-50/80 p-2.5 rounded-lg text-xs border border-slate-100">
+                        <div>
+                          <div className="text-[10px] font-medium text-blue-900">Software</div>
+                          <div className="font-mono font-bold text-slate-900 mt-0.5">
+                            {formatCurrency(record.softwareCharges * periodMultiplier, currency)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-medium text-emerald-900">WhatsApp</div>
+                          <div className="font-mono font-bold text-slate-900 mt-0.5 truncate" title={String(record.whatsappCharges)}>
+                            {formatCurrency(record.whatsappCharges * periodMultiplier, currency)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-medium text-purple-900">Chatbot</div>
+                          <div className="font-mono font-bold text-slate-900 mt-0.5">
+                            {formatCurrency(record.chatbotCharges * periodMultiplier, currency)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Financial Totals: Total, Paid, Dues */}
+                      <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+                        <div>
+                          <div className="text-[10px] text-slate-400">Total Bill</div>
+                          <div className="font-mono font-bold text-slate-900 text-sm">
+                            {formatCurrency(record.totalAmount * periodMultiplier, currency)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400">Paid</div>
+                          <div className="font-mono font-bold text-emerald-700 text-sm">
+                            {formatCurrency(record.amountPaid * periodMultiplier, currency)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400">Dues</div>
+                          <div className={`font-mono font-bold text-sm ${hasDues ? 'text-rose-600' : 'text-emerald-600'}`}>
+                            {formatCurrency(record.remainingDues * periodMultiplier, currency)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Mobile Touch Action Row */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={!hasDues}
+                          onClick={() => openPaymentModalForClient(client)}
+                          className={`flex-1 py-2.5 px-3 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs ${
+                            !hasDues
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                              : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+                          }`}
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>Make Payment</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onGenerateInvoiceWithCharges(
+                              client.id,
+                              selectedMonth,
+                              record.softwareCharges,
+                              record.whatsappRate,
+                              record.whatsappMessages,
+                              record.chatbotCharges
+                            )
+                          }
+                          title="Invoice Editor"
+                          className="p-2.5 text-slate-600 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-lg transition-colors"
+                        >
+                          <FileText className="w-4 h-4 text-blue-600" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadSchoolReportPdf({
+                              client,
+                              record,
+                              company,
+                              selectedMonth,
+                              currency,
+                            })
+                          }
+                          title={`Download ${term.singular} Report PDF`}
+                          className="p-2.5 text-slate-600 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-lg transition-colors"
+                        >
+                          <Download className="w-4 h-4 text-indigo-600" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryModalClient(client)}
+                          title="Payment History"
+                          className="p-2.5 text-slate-600 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-lg transition-colors"
+                        >
+                          <History className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteModalClient(client)}
+                          title={`Delete ${term.singular}`}
+                          className="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:bg-rose-100 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse border border-slate-200 rounded-lg overflow-hidden">
+                  <thead>
+                    <tr className="bg-slate-50/90 text-[11px] font-semibold text-slate-600">
+                      <th className="py-3 px-3.5 border border-slate-200">{term.singular} Name</th>
+                      <th className="py-3 px-3 text-right border border-slate-200 bg-blue-50/30 text-blue-900">Software Charges</th>
+                      <th className="py-3 px-3 border border-slate-200 bg-emerald-50/30 text-emerald-900">WhatsApp Charges</th>
+                      <th className="py-3 px-3 text-right border border-slate-200 bg-purple-50/30 text-purple-900">Chatbot Charges</th>
+                      <th className="py-3 px-3 text-right border border-slate-200">Prev. Dues</th>
+                      <th className="py-3 px-3 text-right border border-slate-200">Total Amount</th>
+                      <th className="py-3 px-3 text-right border border-slate-200">Paid</th>
+                      <th className="py-3 px-3 text-right border border-slate-200">Dues</th>
+                      <th className="py-3 px-3.5 border border-slate-200">Status</th>
+                      <th className="py-3 px-3 text-right border border-slate-200">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-xs">
+                    {filteredLedgerRows.map(({ client, record }) => (
+                      <tr
+                        key={client.id}
+                        className="hover:bg-slate-50/80 transition-colors"
+                      >
+                        <td className="py-3.5 px-3.5 font-semibold text-slate-900 border border-slate-200">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{client.name}</span>
+                            {(record.partnerPaymentEnabled || client.partnerPaymentEnabled) && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200" title={`Partner: ${record.partnerName || client.partnerName || 'Partner'}`}>
+                                <Users className="w-2.5 h-2.5" />
+                                <span>{record.partnerName || client.partnerName || 'Partner'}: {formatCurrency(record.partnerTotalPayment ?? client.partnerTotalPayment ?? 0, currency)}</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] font-normal text-slate-400">
+                            {client.phone}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-800 border border-slate-200 tabular-nums">
+                          {formatCurrency(
+                            record.softwareCharges * periodMultiplier,
+                            currency
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
+                          {record.whatsappBillingType === 'per_month' ||
+                          (record.whatsappCharges > 0 &&
+                            record.whatsappRate === 0 &&
+                            record.whatsappMessages === 0) ? (
+                            <span className="font-semibold text-slate-800">
+                              {formatCurrency(record.whatsappCharges * periodMultiplier, currency)}
+                            </span>
+                          ) : (
+                            <>
+                              {record.whatsappRate} ×{' '}
+                              {(record.whatsappMessages * periodMultiplier).toLocaleString()} ={' '}
+                              <span className="font-semibold text-slate-800">
+                                {formatCurrency(record.whatsappCharges * periodMultiplier, currency)}
+                              </span>
+                            </>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-800 border border-slate-200 tabular-nums">
+                          {formatCurrency(
+                            record.chatbotCharges * periodMultiplier,
+                            currency
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono tabular-nums text-slate-500 border border-slate-200">
+                          {record.previousDues > 0 ? (
+                            <span className="text-rose-600 font-semibold">
+                              {formatCurrency(record.previousDues, currency)}
+                            </span>
+                          ) : (
+                            `${currency} 0`
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums border border-slate-200">
+                          {formatCurrency(
+                            record.totalAmount * periodMultiplier,
+                            currency
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono text-emerald-700 tabular-nums border border-slate-200">
+                          <div>
+                            {formatCurrency(
+                              record.amountPaid * periodMultiplier,
+                              currency
+                            )}
+                          </div>
+                          {record.payments && record.payments.length > 0 && (
+                            <div className="text-[10px] font-sans text-slate-500 mt-0.5 leading-tight">
+                              {record.payments[0].day
+                                ? `${record.payments[0].day}, `
+                                : ''}
+                              {record.payments[0].date}
+                              {record.payments[0].time
+                                ? ` · ${record.payments[0].time}`
+                                : ''}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono font-semibold text-rose-600 tabular-nums border border-slate-200">
+                          {formatCurrency(
+                            record.remainingDues * periodMultiplier,
+                            currency
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3.5 border border-slate-200">
+                          <span
+                            className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
+                              record.status === 'Paid'
+                                ? 'text-emerald-700'
+                                : record.status === 'Partially Paid'
+                                ? 'text-amber-700'
+                                : 'text-rose-600'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                record.status === 'Paid'
+                                  ? 'bg-emerald-600'
+                                  : record.status === 'Partially Paid'
+                                  ? 'bg-amber-500'
+                                  : 'bg-rose-600'
+                              }`}
+                            />
+                            <span>{record.status}</span>
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3 text-right border border-slate-200">
+                          <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                disabled={record.remainingDues <= 0}
+                                onClick={() => openPaymentModalForClient(client)}
+                                className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+                                  record.remainingDues <= 0
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                                }`}
+                              >
+                                Make Payment
+                              </button>
                             <button
                               type="button"
-                              disabled={record.remainingDues <= 0}
-                              onClick={() => openPaymentModalForClient(client)}
-                              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-                                record.remainingDues <= 0
-                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                  : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
-                              }`}
+                              onClick={() =>
+                                onGenerateInvoiceWithCharges(
+                                  client.id,
+                                  selectedMonth,
+                                  record.softwareCharges,
+                                  record.whatsappRate,
+                                  record.whatsappMessages,
+                                  record.chatbotCharges
+                                )
+                              }
+                              title="Open in Invoice Editor"
+                              className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors"
                             >
-                              Make Payment
+                              <FileText className="w-4 h-4" />
                             </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onGenerateInvoiceWithCharges(
-                                client.id,
-                                selectedMonth,
-                                record.softwareCharges,
-                                record.whatsappRate,
-                                record.whatsappMessages,
-                                record.chatbotCharges
-                              )
-                            }
-                            title="Open in Invoice Editor"
-                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors"
-                          >
-                            <FileText className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setReportModalClient(client)}
-                            title={`View ${term.singular} Report & Ledger`}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
-                          >
-                            <Eye className="w-4 h-4 text-indigo-600" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => downloadSchoolReportPdf({
-                                client,
-                                record,
-                                company,
-                                selectedMonth,
-                                currency
-                            })}
-                            title={`Download ${term.singular} Report PDF`}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
-                          >
-                            <Download className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setHistoryModalClient(client)}
-                            title="Payment History"
-                            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-                          >
-                            <History className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleteModalClient(client)}
-                            title={`Delete ${term.singular}`}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                            <button
+                              type="button"
+                              onClick={() => setReportModalClient(client)}
+                              title={`View ${term.singular} Report & Ledger`}
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                              <Eye className="w-4 h-4 text-indigo-600" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadSchoolReportPdf({
+                                  client,
+                                  record,
+                                  company,
+                                  selectedMonth,
+                                  currency
+                              })}
+                              title={`Download ${term.singular} Report PDF`}
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setHistoryModalClient(client)}
+                              title="Payment History"
+                              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                              <History className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteModalClient(client)}
+                              title={`Delete ${term.singular}`}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
 
@@ -3325,138 +3520,407 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse border border-slate-200">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold text-slate-600">
-                  <th className="py-3.5 px-4 border border-slate-200">
-                    Invoice No.
-                  </th>
-                  <th className="py-3.5 px-4 border border-slate-200">
-                    {term.singular}
-                  </th>
-                  <th className="py-3.5 px-4 border border-slate-200">Month</th>
-                  <th className="py-3.5 px-4 text-right border border-slate-200 bg-blue-50/30 text-blue-900">
-                    Software Charges
-                  </th>
-                  <th className="py-3.5 px-4 border border-slate-200">
-                    WhatsApp Charges
-                  </th>
-                  <th className="py-3.5 px-4 text-right border border-slate-200 bg-purple-50/30 text-purple-900">
-                    Chatbot Charges
-                  </th>
-                  <th className="py-3.5 px-4 text-right border border-slate-200 font-bold">
-                    Total Amount
-                  </th>
-                  <th className="py-3.5 px-4 border border-slate-200">Status</th>
-                  <th className="py-3.5 px-4 text-right border border-slate-200">
-                    Action &amp; Delete
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {displayedClients.map((client, idx) => {
-                  const isGen = isClientInvoiceGenerated(
-                    client,
-                    selectedMonth,
-                    company.receiptLog
-                  );
-                  const rec = getOrComputeMonthlyRecord(client, selectedMonth);
-                  const savedLog = (company.receiptLog || []).find(
-                    (r) => r.clientId === client.id && r.month === selectedMonth
-                  );
-                  const invNo = isGen
-                    ? savedLog?.invoiceNumber ||
-                      rec.invoiceNumber ||
-                      `INV-${String(idx + 1).padStart(3, '0')}`
-                    : null;
-                  return (
-                    <tr
-                      key={client.id}
-                      className="hover:bg-slate-50/80 transition-colors"
-                    >
-                      <td className="py-3.5 px-4 font-mono font-semibold text-slate-700 border border-slate-200">
-                        {isGen ? (
-                          <span className="text-blue-700 font-bold">
-                            {invNo}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
-                            Not Generated
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 font-semibold text-slate-900 border border-slate-200">
-                        {client.name}
-                        {!client.enabled && (
-                          <span className="ml-2 text-[11px] font-normal text-slate-400">
-                            (Disabled)
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-600 border border-slate-200 whitespace-nowrap">
-                        {selectedMonth}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-700 tabular-nums border border-slate-200 bg-blue-50/10">
-                        {formatCurrency(rec.softwareCharges, currency)}
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
-                        {rec.whatsappBillingType === 'per_month' ||
-                        (rec.whatsappCharges > 0 &&
-                          rec.whatsappRate === 0 &&
-                          rec.whatsappMessages === 0) ? (
-                          <span className="font-semibold text-slate-800">
-                            {formatCurrency(rec.whatsappCharges, currency)}
-                          </span>
-                        ) : (
-                          <>
-                            {rec.whatsappRate} ×{' '}
-                            {rec.whatsappMessages.toLocaleString()} ={' '}
+          <>
+            {/* Mobile Card View (Easy on Phones & All Touch Devices) */}
+            <div className="block md:hidden space-y-3.5">
+              {displayedClients.map((client, idx) => {
+                const isGen = isClientInvoiceGenerated(
+                  client,
+                  selectedMonth,
+                  company.receiptLog
+                );
+                const rec = getOrComputeMonthlyRecord(client, selectedMonth);
+                const savedLog = (company.receiptLog || []).find(
+                  (r) => r.clientId === client.id && r.month === selectedMonth
+                );
+                const invNo = isGen
+                  ? savedLog?.invoiceNumber ||
+                    rec.invoiceNumber ||
+                    `INV-${String(idx + 1).padStart(3, '0')}`
+                  : null;
+
+                return (
+                  <div
+                    key={client.id}
+                    className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3"
+                  >
+                    {/* Header: School Name, Invoice No & Status */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-sm text-slate-900 truncate">
+                          {client.name}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {isGen ? (
+                            <span className="font-mono text-xs font-bold text-blue-700">
+                              {invNo}
+                            </span>
+                          ) : (
+                            <span className="text-[10.5px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                              Not Generated
+                            </span>
+                          )}
+                          <span className="text-xs text-slate-400">· {selectedMonth}</span>
+                        </div>
+                      </div>
+
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${
+                          isGen
+                            ? rec.status === 'Paid'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : rec.status === 'Partially Paid'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            isGen
+                              ? rec.status === 'Paid'
+                                ? 'bg-emerald-600'
+                                : rec.status === 'Partially Paid'
+                                ? 'bg-amber-500'
+                                : 'bg-rose-600'
+                              : 'bg-amber-500'
+                          }`}
+                        />
+                        <span>{isGen ? rec.status : 'Pending'}</span>
+                      </span>
+                    </div>
+
+                    {/* Fee Structure Breakdown: Software, WhatsApp, Chatbot */}
+                    <div className="grid grid-cols-3 gap-2 bg-slate-50/80 p-2.5 rounded-lg text-xs border border-slate-100">
+                      <div>
+                        <div className="text-[10px] font-medium text-blue-900">Software</div>
+                        <div className="font-mono font-bold text-slate-900 mt-0.5">
+                          {formatCurrency(rec.softwareCharges, currency)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-medium text-emerald-900">WhatsApp</div>
+                        <div className="font-mono font-bold text-slate-900 mt-0.5 truncate" title={String(rec.whatsappCharges)}>
+                          {formatCurrency(rec.whatsappCharges, currency)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-medium text-purple-900">Chatbot</div>
+                        <div className="font-mono font-bold text-slate-900 mt-0.5">
+                          {formatCurrency(rec.chatbotCharges, currency)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Total Bar */}
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+                      <span className="text-slate-500">Invoice Total:</span>
+                      <span className="font-mono font-bold text-base text-slate-900">
+                        {formatCurrency(rec.totalAmount, currency)}
+                      </span>
+                    </div>
+
+                    {/* Action Buttons: Big Touch Friendly */}
+                    <div className="pt-1">
+                      {isGen ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onGenerateInvoiceWithCharges(
+                                client.id,
+                                selectedMonth,
+                                rec.softwareCharges,
+                                rec.whatsappRate,
+                                rec.whatsappMessages,
+                                rec.chatbotCharges
+                              )
+                            }
+                            className="flex-1 py-2 px-2.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1 whitespace-nowrap"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Preview</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onQuickDownloadInvoice(client.id, selectedMonth)
+                            }
+                            className="py-2 px-3 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>PDF</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onQuickWhatsAppInvoice(client.id, selectedMonth)
+                            }
+                            title="Share via WhatsApp"
+                            className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 rounded-lg transition-colors"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onQuickPrintInvoice(client.id, selectedMonth)
+                            }
+                            title="Print Invoice"
+                            className="p-2 text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 active:bg-slate-100 rounded-lg transition-colors"
+                          >
+                            <Printer className="w-4 h-4 text-blue-600" />
+                          </button>
+                          {onDeleteInvoice && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteInvoiceTarget({
+                                  clientId: client.id,
+                                  clientName: client.name,
+                                  month: selectedMonth,
+                                  invoiceNumber: invNo || 'INV',
+                                })
+                              }
+                              title="Delete this Invoice"
+                              className="p-2 text-rose-600 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onGenerateInvoiceWithCharges(
+                              client.id,
+                              selectedMonth,
+                              rec.softwareCharges,
+                              rec.whatsappRate,
+                              rec.whatsappMessages,
+                              rec.chatbotCharges
+                            )
+                          }
+                          className="w-full py-2.5 px-3 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                        >
+                          <FileText className="w-4 h-4" />
+                          <span>Generate Invoice</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse border border-slate-200">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold text-slate-600">
+                    <th className="py-3.5 px-4 border border-slate-200">
+                      Invoice No.
+                    </th>
+                    <th className="py-3.5 px-4 border border-slate-200">
+                      {term.singular}
+                    </th>
+                    <th className="py-3.5 px-4 border border-slate-200">Month</th>
+                    <th className="py-3.5 px-4 text-right border border-slate-200 bg-blue-50/30 text-blue-900">
+                      Software Charges
+                    </th>
+                    <th className="py-3.5 px-4 border border-slate-200">
+                      WhatsApp Charges
+                    </th>
+                    <th className="py-3.5 px-4 text-right border border-slate-200 bg-purple-50/30 text-purple-900">
+                      Chatbot Charges
+                    </th>
+                    <th className="py-3.5 px-4 text-right border border-slate-200 font-bold">
+                      Total Amount
+                    </th>
+                    <th className="py-3.5 px-4 border border-slate-200">Status</th>
+                    <th className="py-3.5 px-4 text-right border border-slate-200">
+                      Action &amp; Delete
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {displayedClients.map((client, idx) => {
+                    const isGen = isClientInvoiceGenerated(
+                      client,
+                      selectedMonth,
+                      company.receiptLog
+                    );
+                    const rec = getOrComputeMonthlyRecord(client, selectedMonth);
+                    const savedLog = (company.receiptLog || []).find(
+                      (r) => r.clientId === client.id && r.month === selectedMonth
+                    );
+                    const invNo = isGen
+                      ? savedLog?.invoiceNumber ||
+                        rec.invoiceNumber ||
+                        `INV-${String(idx + 1).padStart(3, '0')}`
+                      : null;
+                    return (
+                      <tr
+                        key={client.id}
+                        className="hover:bg-slate-50/80 transition-colors"
+                      >
+                        <td className="py-3.5 px-4 font-mono font-semibold text-slate-700 border border-slate-200">
+                          {isGen ? (
+                            <span className="text-blue-700 font-bold">
+                              {invNo}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                              Not Generated
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 font-semibold text-slate-900 border border-slate-200">
+                          {client.name}
+                          {!client.enabled && (
+                            <span className="ml-2 text-[11px] font-normal text-slate-400">
+                              (Disabled)
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600 border border-slate-200 whitespace-nowrap">
+                          {selectedMonth}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-700 tabular-nums border border-slate-200 bg-blue-50/10">
+                          {formatCurrency(rec.softwareCharges, currency)}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-600 border border-slate-200 whitespace-nowrap">
+                          {rec.whatsappBillingType === 'per_month' ||
+                          (rec.whatsappCharges > 0 &&
+                            rec.whatsappRate === 0 &&
+                            rec.whatsappMessages === 0) ? (
                             <span className="font-semibold text-slate-800">
                               {formatCurrency(rec.whatsappCharges, currency)}
                             </span>
-                          </>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-purple-700 tabular-nums border border-slate-200 bg-purple-50/10">
-                        {formatCurrency(rec.chatbotCharges, currency)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900 tabular-nums border border-slate-200">
-                        {formatCurrency(rec.totalAmount, currency)}
-                      </td>
-                      <td className="py-3.5 px-4 border border-slate-200">
-                        {isGen ? (
-                          <span
-                            className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
-                              rec.status === 'Paid'
-                                ? 'text-emerald-700'
-                                : rec.status === 'Partially Paid'
-                                ? 'text-amber-700'
-                                : 'text-rose-600'
-                            }`}
-                          >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                rec.status === 'Paid'
-                                  ? 'bg-emerald-600'
-                                  : rec.status === 'Partially Paid'
-                                  ? 'bg-amber-500'
-                                  : 'bg-rose-600'
-                              }`}
-                            />
-                            <span>{rec.status}</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                            <span>Pending</span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-right border border-slate-200">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {isGen ? (
+                          ) : (
                             <>
+                              {rec.whatsappRate} ×{' '}
+                              {rec.whatsappMessages.toLocaleString()} ={' '}
+                              <span className="font-semibold text-slate-800">
+                                {formatCurrency(rec.whatsappCharges, currency)}
+                              </span>
+                            </>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-purple-700 tabular-nums border border-slate-200 bg-purple-50/10">
+                          {formatCurrency(rec.chatbotCharges, currency)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900 tabular-nums border border-slate-200">
+                          {formatCurrency(rec.totalAmount, currency)}
+                        </td>
+                        <td className="py-3.5 px-4 border border-slate-200">
+                          {isGen ? (
+                            <span
+                              className={`inline-flex items-center gap-1.5 font-semibold text-xs ${
+                                rec.status === 'Paid'
+                                  ? 'text-emerald-700'
+                                  : rec.status === 'Partially Paid'
+                                  ? 'text-amber-700'
+                                  : 'text-rose-600'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  rec.status === 'Paid'
+                                    ? 'bg-emerald-600'
+                                    : rec.status === 'Partially Paid'
+                                    ? 'bg-amber-500'
+                                    : 'bg-rose-600'
+                                }`}
+                              />
+                              <span>{rec.status}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                              <span>Pending</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right border border-slate-200">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isGen ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onGenerateInvoiceWithCharges(
+                                      client.id,
+                                      selectedMonth,
+                                      rec.softwareCharges,
+                                      rec.whatsappRate,
+                                      rec.whatsappMessages,
+                                      rec.chatbotCharges
+                                    )
+                                  }
+                                  className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>Edit / Preview</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onQuickPrintInvoice(client.id, selectedMonth)
+                                  }
+                                  title="Print Invoice with Company Logo"
+                                  className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                                >
+                                  <Printer className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Print</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onQuickDownloadInvoice(
+                                      client.id,
+                                      selectedMonth
+                                    )
+                                  }
+                                  title="Download PDF with Company Logo"
+                                  className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>Download</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onQuickWhatsAppInvoice(
+                                      client.id,
+                                      selectedMonth
+                                    )
+                                  }
+                                  title="Share via WhatsApp with Company Logo PDF"
+                                  className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+                                >
+                                  <MessageCircle className="w-4 h-4" />
+                                </button>
+                                {onDeleteInvoice && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setDeleteInvoiceTarget({
+                                        clientId: client.id,
+                                        clientName: client.name,
+                                        month: selectedMonth,
+                                        invoiceNumber: invNo || 'INV',
+                                      })
+                                    }
+                                    title="Delete this Invoice"
+                                    className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </>
+                            ) : (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -3469,94 +3933,21 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                                     rec.chatbotCharges
                                   )
                                 }
-                                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-xs"
                               >
-                                <Eye className="w-3.5 h-3.5" />
-                                <span>Edit / Preview</span>
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>Generate Invoice</span>
                               </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onQuickPrintInvoice(client.id, selectedMonth)
-                                }
-                                title="Print Invoice with Company Logo"
-                                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
-                              >
-                                <Printer className="w-3.5 h-3.5 text-blue-600" />
-                                <span>Print</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onQuickDownloadInvoice(
-                                    client.id,
-                                    selectedMonth
-                                  )
-                                }
-                                title="Download PDF with Company Logo"
-                                className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                                <span>Download</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onQuickWhatsAppInvoice(
-                                    client.id,
-                                    selectedMonth
-                                  )
-                                }
-                                title="Share via WhatsApp with Company Logo PDF"
-                                className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
-                              >
-                                <MessageCircle className="w-4 h-4" />
-                              </button>
-                              {onDeleteInvoice && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setDeleteInvoiceTarget({
-                                      clientId: client.id,
-                                      clientName: client.name,
-                                      month: selectedMonth,
-                                      invoiceNumber: invNo || 'INV',
-                                    })
-                                  }
-                                  title="Delete this Invoice"
-                                  className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onGenerateInvoiceWithCharges(
-                                  client.id,
-                                  selectedMonth,
-                                  rec.softwareCharges,
-                                  rec.whatsappRate,
-                                  rec.whatsappMessages,
-                                  rec.chatbotCharges
-                                )
-                              }
-                              className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-xs"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                              <span>Generate Invoice</span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

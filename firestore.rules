@@ -21,23 +21,15 @@ service cloud.firestore {
     }
 
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null && request.auth.uid != null;
     }
 
     function isVerified() {
-      return request.auth != null && (
-        request.auth.token.email_verified == true ||
-        request.auth.token.firebase.sign_in_provider == 'password' ||
-        request.auth.token.firebase.sign_in_provider == 'google.com' ||
-        request.auth.uid != null
-      );
+      return isSignedIn();
     }
 
     function isWorkspaceOwner(userId) {
-      return request.auth.uid == userId || (
-        exists(/databases/$(database)/documents/workspaces/$(userId)) &&
-        get(/databases/$(database)/documents/workspaces/$(userId)).data.ownerId == request.auth.uid
-      );
+      return isSignedIn() && request.auth.uid == userId;
     }
 
     // 3. Entity Validation Blueprints (Synced verbatim with firebase-blueprint.json)
@@ -81,6 +73,9 @@ service cloud.firestore {
           'softwareEnabled', 'softwareCharges',
           'whatsappEnabled', 'whatsappBillingType', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
           'chatbotEnabled', 'chatbotCharges',
+          'ownerName', 'partnerId', 'partnerName', 'partnerPaymentEnabled',
+          'partnerSoftwareCharges', 'partnerWhatsappCharges', 'partnerChatbotCharges',
+          'partnerTotalPayment', 'partnerNote',
           'monthlyRecords', 'createdAt', 'updatedAt'
         ]) &&
         data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
@@ -98,6 +93,15 @@ service cloud.firestore {
         data.whatsappCharges is number && data.whatsappCharges >= 0 &&
         data.chatbotEnabled is bool &&
         data.chatbotCharges is number && data.chatbotCharges >= 0 &&
+        (!('ownerName' in data) || (data.ownerName is string && data.ownerName.size() <= 120)) &&
+        (!('partnerId' in data) || (data.partnerId is string && data.partnerId.size() <= 128)) &&
+        (!('partnerName' in data) || (data.partnerName is string && data.partnerName.size() <= 120)) &&
+        (!('partnerPaymentEnabled' in data) || data.partnerPaymentEnabled is bool) &&
+        (!('partnerSoftwareCharges' in data) || (data.partnerSoftwareCharges is number && data.partnerSoftwareCharges >= 0)) &&
+        (!('partnerWhatsappCharges' in data) || (data.partnerWhatsappCharges is number && data.partnerWhatsappCharges >= 0)) &&
+        (!('partnerChatbotCharges' in data) || (data.partnerChatbotCharges is number && data.partnerChatbotCharges >= 0)) &&
+        (!('partnerTotalPayment' in data) || (data.partnerTotalPayment is number && data.partnerTotalPayment >= 0)) &&
+        (!('partnerNote' in data) || (data.partnerNote is string && data.partnerNote.size() <= 250)) &&
         data.monthlyRecords is map &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
@@ -108,7 +112,10 @@ service cloud.firestore {
           'ownerId', 'description', 'amount', 'category', 'date', 'month', 'partnerName', 'createdAt', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'ownerId', 'description', 'amount', 'category', 'date', 'month', 'partnerName', 'amountPaid', 'status', 'isPaid', 'isMonthlyRecurring', 'recurringGroupId', 'createdAt', 'updatedAt'
+          'ownerId', 'description', 'amount', 'category', 'date', 'month', 'partnerName',
+          'amountPaid', 'status', 'isPaid', 'isMonthlyRecurring', 'recurringGroupId',
+          'partnerId', 'paymentMethod', 'paymentFromAccountId', 'paymentFromAccountName',
+          'createdAt', 'updatedAt'
         ]) &&
         data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
         data.ownerId == request.auth.uid &&
@@ -119,14 +126,11 @@ service cloud.firestore {
         (!('isPaid' in data) || data.isPaid is bool) &&
         (!('isMonthlyRecurring' in data) || data.isMonthlyRecurring is bool) &&
         (!('recurringGroupId' in data) || (data.recurringGroupId is string && data.recurringGroupId.size() <= 80)) &&
-        data.category is string && data.category in [
-          'Office Expenses',
-          'Salaries',
-          'Marketing',
-          'Internet',
-          'Partner Payout',
-          'Other Expenses'
-        ] &&
+        (!('partnerId' in data) || (data.partnerId is string && data.partnerId.size() <= 128)) &&
+        (!('paymentMethod' in data) || (data.paymentMethod is string && data.paymentMethod.size() <= 40)) &&
+        (!('paymentFromAccountId' in data) || (data.paymentFromAccountId is string && data.paymentFromAccountId.size() <= 128)) &&
+        (!('paymentFromAccountName' in data) || (data.paymentFromAccountName is string && data.paymentFromAccountName.size() <= 120)) &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
         data.date is string && data.date.size() >= 1 && data.date.size() <= 30 &&
         data.month is string && data.month.size() >= 1 && data.month.size() <= 40 &&
         data.partnerName is string && data.partnerName.size() >= 0 && data.partnerName.size() <= 120 &&
@@ -223,6 +227,9 @@ service cloud.firestore {
               'softwareEnabled', 'softwareCharges',
               'whatsappEnabled', 'whatsappBillingType', 'whatsappRate', 'whatsappMessages', 'whatsappCharges',
               'chatbotEnabled', 'chatbotCharges',
+              'ownerName', 'partnerId', 'partnerName', 'partnerPaymentEnabled',
+              'partnerSoftwareCharges', 'partnerWhatsappCharges', 'partnerChatbotCharges',
+              'partnerTotalPayment', 'partnerNote',
               'monthlyRecords', 'updatedAt'
             ])
           ) &&
@@ -256,7 +263,10 @@ service cloud.firestore {
           incoming().updatedAt == request.time &&
           (
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'description', 'amount', 'category', 'date', 'month', 'partnerName', 'amountPaid', 'status', 'isPaid', 'isMonthlyRecurring', 'recurringGroupId', 'updatedAt'
+              'description', 'amount', 'category', 'date', 'month', 'partnerName',
+              'amountPaid', 'status', 'isPaid', 'isMonthlyRecurring', 'recurringGroupId',
+              'partnerId', 'paymentMethod', 'paymentFromAccountId', 'paymentFromAccountName',
+              'updatedAt'
             ])
           ) &&
           isWorkspaceOwner(userId);

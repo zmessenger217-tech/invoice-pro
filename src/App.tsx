@@ -2940,7 +2940,7 @@ export default function App() {
           </nav>
 
           {/* Zone 3: Dynamic Terminology Category Selector + Company Setup */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <select
               aria-label="Software Category"
               value={company.category}
@@ -2952,7 +2952,7 @@ export default function App() {
                   tagline: CATEGORY_MAP[newCat].tagline,
                 });
               }}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:border-blue-600 focus:outline-none"
+              className="hidden sm:block px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:border-blue-600 focus:outline-none max-w-[140px] truncate"
               title="Dynamically switch Software Category terminology across the entire app"
             >
               <option value="School Management">School Management</option>
@@ -2972,15 +2972,15 @@ export default function App() {
             <button
               type="button"
               onClick={() => setAuthScreenMode('company-setup')}
-              className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap"
+              className="px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap"
             >
-              Company Setup
+              <span className="hidden sm:inline">Company </span>Setup
             </button>
           </div>
         </header>
 
         {/* Main Content Viewport */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-8">
           {(activeTab === 'dashboard' ||
             activeTab === 'add-client' ||
             activeTab === 'check-balance' ||
@@ -3148,57 +3148,57 @@ export default function App() {
       )}
 
       {/* Mobile Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 inset-x-0 z-30 h-14 bg-white border-t border-slate-200 grid grid-cols-5 md:hidden">
+      <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 grid grid-cols-5 md:hidden pb-[max(0.25rem,env(safe-area-inset-bottom))] shadow-lg">
         <button
           type="button"
           onClick={() => setActiveTab('dashboard')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium ${
-            activeTab === 'dashboard' ? 'text-blue-600' : 'text-slate-500'
+          className={`flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors ${
+            activeTab === 'dashboard' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-900'
           }`}
         >
-          <LayoutDashboard className="w-4 h-4" />
+          <LayoutDashboard className="w-5 h-5" />
           <span>Dashboard</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('check-balance')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium ${
-            activeTab === 'check-balance' ? 'text-blue-600' : 'text-slate-500'
+          className={`flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors ${
+            activeTab === 'check-balance' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-900'
           }`}
         >
-          <CheckSquare className="w-4 h-4" />
+          <CheckSquare className="w-5 h-5" />
           <span>{term.plural}</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('invoices')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium ${
-            activeTab === 'invoices' ? 'text-blue-600' : 'text-slate-500'
+          className={`flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors ${
+            activeTab === 'invoices' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-900'
           }`}
         >
-          <FileText className="w-4 h-4" />
+          <FileText className="w-5 h-5" />
           <span>Invoices</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('invoice-editor')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium ${
-            activeTab === 'invoice-editor' ? 'text-blue-600' : 'text-slate-500'
+          className={`flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors ${
+            activeTab === 'invoice-editor' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-900'
           }`}
         >
-          <Edit3 className="w-4 h-4" />
+          <Edit3 className="w-5 h-5" />
           <span>Editor</span>
         </button>
 
         <button
           type="button"
           onClick={() => setMobileMenuOpen(true)}
-          className="flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-slate-500"
+          className="flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium text-slate-500 hover:text-slate-900"
         >
-          <Menu className="w-4 h-4" />
+          <Menu className="w-5 h-5" />
           <span>More</span>
         </button>
       </nav>

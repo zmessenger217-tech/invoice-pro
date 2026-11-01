@@ -318,44 +318,104 @@ export function getOrComputeMonthlyRecord(
       ? `Previous Dues — ${prevMonth}`
       : existing?.previousDuesLabel || `Previous Dues (${prevMonth})`;
 
+  // Baseline recurring charges configured for this school
+  const baseSoftware = Number(client.softwareCharges) || 0;
+  const baseBillingType = client.whatsappBillingType || 'per_message';
+  const baseWhatsappRate = Number(client.whatsappRate) || 0;
+  const baseWhatsappMessages = Number(client.whatsappMessages) || 0;
+  const baseComputedWhatsapp = Math.round(baseWhatsappRate * baseWhatsappMessages);
+  const baseDirectWhatsapp = Number(client.whatsappCharges) || 0;
+  const baseWhatsappCharges =
+    baseBillingType === 'per_month'
+      ? (baseDirectWhatsapp > 0 ? baseDirectWhatsapp : baseWhatsappRate > 0 ? baseWhatsappRate : baseComputedWhatsapp)
+      : (baseComputedWhatsapp > 0 ? baseComputedWhatsapp : baseDirectWhatsapp);
+  const baseChatbot = Number(client.chatbotCharges) || 0;
+
+  // Partner baseline cut for this school
+  const basePartnerSoftware = Number(client.partnerSoftwareCharges) || 0;
+  const basePartnerWhatsapp = Number(client.partnerWhatsappCharges) || 0;
+  const basePartnerChatbot = Number(client.partnerChatbotCharges) || 0;
+  const basePartnerTotal =
+    Number(client.partnerTotalPayment) ||
+    (basePartnerSoftware + basePartnerWhatsapp + basePartnerChatbot);
+
   if (existing) {
-    const rawRate = Number(existing.whatsappRate) || 0;
-    const rawMessages = Number(existing.whatsappMessages) || 0;
+    // If existing record has positive custom charges, keep them; otherwise inherit school base charges so they remain the same all months
+    const softwareCharges =
+      existing.softwareCharges !== undefined && Number(existing.softwareCharges) > 0
+        ? Number(existing.softwareCharges)
+        : baseSoftware;
+
+    const rawRate =
+      existing.whatsappRate !== undefined && Number(existing.whatsappRate) > 0
+        ? Number(existing.whatsappRate)
+        : baseWhatsappRate;
+    const rawMessages =
+      existing.whatsappMessages !== undefined && Number(existing.whatsappMessages) > 0
+        ? Number(existing.whatsappMessages)
+        : baseWhatsappMessages;
     const computedFromPerMsg = Math.round(rawRate * rawMessages);
-    const savedDirectWhatsapp = Number(existing.whatsappCharges) || 0;
+    const savedDirectWhatsapp = Number(existing.whatsappCharges) || baseDirectWhatsapp;
+
     const billingType =
       existing.whatsappBillingType ??
       client.whatsappBillingType ??
       (savedDirectWhatsapp > 0 && computedFromPerMsg === 0
         ? 'per_month'
         : 'per_message');
-    const whatsappCharges =
+
+    let whatsappCharges =
       billingType === 'per_month'
-        ? savedDirectWhatsapp > 0
-          ? savedDirectWhatsapp
-          : computedFromPerMsg
-        : computedFromPerMsg > 0
-        ? computedFromPerMsg
-        : savedDirectWhatsapp;
-    const currentMonthTotal =
-      (Number(existing.softwareCharges) || 0) +
-      whatsappCharges +
-      (Number(existing.chatbotCharges) || 0);
+        ? (savedDirectWhatsapp > 0 ? savedDirectWhatsapp : rawRate > 0 ? rawRate : computedFromPerMsg)
+        : (computedFromPerMsg > 0 ? computedFromPerMsg : savedDirectWhatsapp);
+    if (whatsappCharges === 0 && baseWhatsappCharges > 0) {
+      whatsappCharges = baseWhatsappCharges;
+    }
+
+    const chatbotCharges =
+      existing.chatbotCharges !== undefined && Number(existing.chatbotCharges) > 0
+        ? Number(existing.chatbotCharges)
+        : baseChatbot;
+
+    const currentMonthTotal = softwareCharges + whatsappCharges + chatbotCharges;
     const previousDues =
-      prevRecord !== undefined ? carriedDues : existing.previousDues;
+      prevRecord !== undefined ? carriedDues : (existing.previousDues ?? 0);
     const totalAmount = currentMonthTotal + previousDues;
-    const remainingDues = Math.max(0, totalAmount - existing.amountPaid);
+    const remainingDues = Math.max(0, totalAmount - (existing.amountPaid || 0));
     const status =
       remainingDues === 0
         ? 'Paid'
-        : existing.amountPaid > 0
+        : (existing.amountPaid || 0) > 0
         ? 'Partially Paid'
         : 'Unpaid';
 
+    const partnerSoftwareCharges =
+      existing.partnerSoftwareCharges !== undefined && Number(existing.partnerSoftwareCharges) > 0
+        ? Number(existing.partnerSoftwareCharges)
+        : basePartnerSoftware;
+    const partnerWhatsappCharges =
+      existing.partnerWhatsappCharges !== undefined && Number(existing.partnerWhatsappCharges) > 0
+        ? Number(existing.partnerWhatsappCharges)
+        : basePartnerWhatsapp;
+    const partnerChatbotCharges =
+      existing.partnerChatbotCharges !== undefined && Number(existing.partnerChatbotCharges) > 0
+        ? Number(existing.partnerChatbotCharges)
+        : basePartnerChatbot;
+    const partnerTotalPayment =
+      existing.partnerTotalPayment !== undefined && Number(existing.partnerTotalPayment) > 0
+        ? Number(existing.partnerTotalPayment)
+        : (basePartnerTotal > 0
+            ? basePartnerTotal
+            : partnerSoftwareCharges + partnerWhatsappCharges + partnerChatbotCharges);
+
     return {
       ...existing,
+      softwareCharges,
       whatsappBillingType: billingType,
+      whatsappRate: rawRate,
+      whatsappMessages: rawMessages,
       whatsappCharges,
+      chatbotCharges,
       currentMonthTotal,
       previousDues,
       previousDuesLabel: existing.previousDuesLabel || prevLabel,
@@ -367,14 +427,10 @@ export function getOrComputeMonthlyRecord(
       partnerName: existing.partnerName ?? client.partnerName,
       partnerPaymentEnabled:
         existing.partnerPaymentEnabled ?? client.partnerPaymentEnabled,
-      partnerSoftwareCharges:
-        existing.partnerSoftwareCharges ?? client.partnerSoftwareCharges,
-      partnerWhatsappCharges:
-        existing.partnerWhatsappCharges ?? client.partnerWhatsappCharges,
-      partnerChatbotCharges:
-        existing.partnerChatbotCharges ?? client.partnerChatbotCharges,
-      partnerTotalPayment:
-        existing.partnerTotalPayment ?? client.partnerTotalPayment,
+      partnerSoftwareCharges,
+      partnerWhatsappCharges,
+      partnerChatbotCharges,
+      partnerTotalPayment,
       partnerNote: existing.partnerNote ?? client.partnerNote,
       // Always ensure invoiceDate and dueDate align with the selected month
       invoiceDate: getIssueDateForMonth(month, existing.invoiceDate),
@@ -384,27 +440,38 @@ export function getOrComputeMonthlyRecord(
     };
   }
 
-  // If user data for this month is not available, do NOT add expected data from yourself!
-  // Return zero charges for this month, carrying forward only real unpaid dues from prior billed months if any.
+  // When no existing record is saved for this month, use the school's configured fee structure
+  // so that the amounts of all descriptions remain the same for all months
   const numSuffix =
     client.id.replace(/\D/g, '').slice(-3).padStart(3, '0') || '001';
 
+  const softwareCharges = baseSoftware;
+  const whatsappBillingType = baseBillingType;
+  const whatsappRate = baseWhatsappRate;
+  const whatsappMessages = baseWhatsappMessages;
+  const whatsappCharges = baseWhatsappCharges;
+  const chatbotCharges = baseChatbot;
+  const currentMonthTotal = softwareCharges + whatsappCharges + chatbotCharges;
+  const totalAmount = currentMonthTotal + carriedDues;
+  const remainingDues = totalAmount;
+  const status = totalAmount === 0 ? 'Paid' : 'Unpaid';
+
   return {
     month,
-    softwareCharges: 0,
-    whatsappBillingType: client.whatsappBillingType || 'per_message',
-    whatsappRate: 0,
-    whatsappMessages: 0,
-    whatsappCharges: 0,
-    chatbotCharges: 0,
+    softwareCharges,
+    whatsappBillingType,
+    whatsappRate,
+    whatsappMessages,
+    whatsappCharges,
+    chatbotCharges,
     previousDues: carriedDues,
     previousDuesLabel:
       carriedDues > 0 ? `Previous Dues — ${prevMonth}` : '',
-    currentMonthTotal: 0,
-    totalAmount: carriedDues,
+    currentMonthTotal,
+    totalAmount,
     amountPaid: 0,
-    remainingDues: carriedDues,
-    status: carriedDues === 0 ? 'Paid' : 'Unpaid',
+    remainingDues,
+    status,
     invoiceNumber: `INV-${numSuffix}`,
     invoiceDate: getIssueDateForMonth(month),
     dueDate: getDueDateForMonth(month),
@@ -413,10 +480,10 @@ export function getOrComputeMonthlyRecord(
     partnerId: client.partnerId,
     partnerName: client.partnerName,
     partnerPaymentEnabled: client.partnerPaymentEnabled,
-    partnerSoftwareCharges: 0,
-    partnerWhatsappCharges: 0,
-    partnerChatbotCharges: 0,
-    partnerTotalPayment: 0,
+    partnerSoftwareCharges: basePartnerSoftware,
+    partnerWhatsappCharges: basePartnerWhatsapp,
+    partnerChatbotCharges: basePartnerChatbot,
+    partnerTotalPayment: basePartnerTotal,
     partnerNote: client.partnerNote,
   };
 }

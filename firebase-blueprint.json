@@ -165,6 +165,46 @@
           "type": "object",
           "description": "Map of monthly billing and payment ledger records keyed by month."
         },
+        "ownerName": {
+          "type": "string",
+          "description": "School / client owner or principal name.",
+          "maxLength": 120
+        },
+        "partnerId": {
+          "type": "string",
+          "description": "Optional assigned partner ID.",
+          "maxLength": 128
+        },
+        "partnerName": {
+          "type": "string",
+          "description": "Optional assigned partner name.",
+          "maxLength": 120
+        },
+        "partnerPaymentEnabled": {
+          "type": "boolean",
+          "description": "Whether partner payment share is enabled for this school."
+        },
+        "partnerSoftwareCharges": {
+          "type": "number",
+          "description": "Partner software cut amount."
+        },
+        "partnerWhatsappCharges": {
+          "type": "number",
+          "description": "Partner WhatsApp cut amount."
+        },
+        "partnerChatbotCharges": {
+          "type": "number",
+          "description": "Partner Chatbot cut amount."
+        },
+        "partnerTotalPayment": {
+          "type": "number",
+          "description": "Partner total monthly payment cut."
+        },
+        "partnerNote": {
+          "type": "string",
+          "description": "Partner payment note.",
+          "maxLength": 250
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -217,17 +257,56 @@
           "type": "number",
           "description": "Expense amount."
         },
+        "amountPaid": {
+          "type": "number",
+          "description": "Amount paid towards the expense."
+        },
+        "status": {
+          "type": "string",
+          "description": "Payment status.",
+          "enum": [
+            "Paid",
+            "Partially Paid",
+            "Unpaid"
+          ]
+        },
+        "isPaid": {
+          "type": "boolean",
+          "description": "Whether fully paid."
+        },
+        "isMonthlyRecurring": {
+          "type": "boolean",
+          "description": "Whether recurring each month."
+        },
+        "recurringGroupId": {
+          "type": "string",
+          "description": "Group ID for recurring expense series.",
+          "maxLength": 80
+        },
+        "partnerId": {
+          "type": "string",
+          "description": "Associated partner ID.",
+          "maxLength": 128
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Method of payment.",
+          "maxLength": 40
+        },
+        "paymentFromAccountId": {
+          "type": "string",
+          "description": "Bank/wallet account ID paid from.",
+          "maxLength": 128
+        },
+        "paymentFromAccountName": {
+          "type": "string",
+          "description": "Bank/wallet account name paid from.",
+          "maxLength": 120
+        },
         "category": {
           "type": "string",
           "description": "Expense category.",
-          "enum": [
-            "Office Expenses",
-            "Salaries",
-            "Marketing",
-            "Internet",
-            "Partner Payout",
-            "Other Expenses"
-          ]
+          "maxLength": 80
         },
         "date": {
           "type": "string",
