@@ -205,6 +205,11 @@
           "description": "Partner payment note.",
           "maxLength": 250
         },
+        "startMonth": {
+          "type": "string",
+          "description": "Billing month from which this client starts using the software.",
+          "maxLength": 40
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",

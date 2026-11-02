@@ -2609,16 +2609,20 @@ export default function App() {
             // ignore
           }
           setFirebaseUser(user);
+          const currentMonthNow = getCurrentMonthLabel();
+          const todayIso = new Date().toISOString().split('T')[0];
           const loaded = await loadOrBootstrapWorkspace(
             user,
             {
               ...INITIAL_COMPANY_PROFILE,
               email: email.trim(),
               logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+              accountCreatedAt: todayIso,
+              startMonth: currentMonthNow,
             },
-            INITIAL_CLIENTS,
-            INITIAL_EXPENSES,
-            INITIAL_PARTNERS
+            [],
+            [],
+            []
           );
           setCompany(loaded.company);
           setClients(loaded.clients);
@@ -2630,10 +2634,14 @@ export default function App() {
         }}
         onSignUp={async (fullName, email, password) => {
           isSigningUpRef.current = true;
+          const currentMonthNow = getCurrentMonthLabel();
+          const todayIso = new Date().toISOString().split('T')[0];
           const initialProfile: CompanyProfile = {
             ...INITIAL_COMPANY_PROFILE,
             email: email.trim(),
             logoDataUrl: DEFAULT_BRAND_LOGO_DATA_URL,
+            accountCreatedAt: todayIso,
+            startMonth: currentMonthNow,
           };
           setCompany(initialProfile);
           setClients([]);

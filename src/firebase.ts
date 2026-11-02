@@ -717,7 +717,13 @@ export function subscribeToWorkspaceRealtime(
           address: data.address,
           phone: data.phone,
           enabled: Boolean(data.enabled),
-          createdAt: '2026-01-10',
+          createdAt:
+            data.createdAt?.toDate?.()?.toISOString()?.split('T')[0] ||
+            (typeof data.createdAt === 'string'
+              ? data.createdAt
+              : new Date().toISOString().split('T')[0]),
+          startMonth: data.startMonth || undefined,
+          ownerName: data.ownerName || undefined,
           softwareEnabled: Boolean(data.softwareEnabled),
           softwareCharges: Number(data.softwareCharges) || 0,
           whatsappEnabled: Boolean(data.whatsappEnabled),
@@ -983,7 +989,13 @@ export async function loadOrBootstrapWorkspace(
         address: data.address,
         phone: data.phone,
         enabled: Boolean(data.enabled),
-        createdAt: '2026-01-10',
+        createdAt:
+          data.createdAt?.toDate?.()?.toISOString()?.split('T')[0] ||
+          (typeof data.createdAt === 'string'
+            ? data.createdAt
+            : new Date().toISOString().split('T')[0]),
+        startMonth: data.startMonth || undefined,
+        ownerName: data.ownerName || undefined,
         softwareEnabled: Boolean(data.softwareEnabled),
         softwareCharges: Number(data.softwareCharges) || 0,
         whatsappEnabled: Boolean(data.whatsappEnabled),
@@ -1114,10 +1126,6 @@ export async function loadOrBootstrapWorkspace(
     });
   } catch (error) {
     // ignore if accounts collection doesn't exist
-  }
-
-  if (partners.length === 0) {
-    partners = defaultPartners;
   }
 
   if (accounts.length === 0 && defaultAccounts.length > 0) {
@@ -1263,6 +1271,7 @@ export async function syncClientToFirestore(
         partnerChatbotCharges: Math.max(0, Number(client.partnerChatbotCharges) || 0),
         partnerTotalPayment: Math.max(0, Number(client.partnerTotalPayment) || 0),
         partnerNote: clampString(client.partnerNote, 250, ''),
+        startMonth: clampString(client.startMonth, 40, ''),
         monthlyRecords: cleanMonthlyRecords,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -1294,6 +1303,7 @@ export async function syncClientToFirestore(
         partnerChatbotCharges: Math.max(0, Number(client.partnerChatbotCharges) || 0),
         partnerTotalPayment: Math.max(0, Number(client.partnerTotalPayment) || 0),
         partnerNote: clampString(client.partnerNote, 250, ''),
+        startMonth: clampString(client.startMonth, 40, ''),
         monthlyRecords: cleanMonthlyRecords,
         updatedAt: serverTimestamp(),
       });

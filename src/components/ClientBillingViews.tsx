@@ -548,7 +548,12 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
         phone: clientPhone.trim(),
         ownerName: clientOwnerName.trim() || undefined,
         enabled: existingClient ? existingClient.enabled : true,
-        createdAt: existingClient?.createdAt || '2026-05-15',
+        createdAt:
+          existingClient?.createdAt || new Date().toISOString().split('T')[0],
+        startMonth:
+          existingClient?.startMonth ||
+          selectedMonth ||
+          getCurrentMonthLabel(),
         softwareEnabled,
         softwareCharges: numSoftware,
         whatsappEnabled,

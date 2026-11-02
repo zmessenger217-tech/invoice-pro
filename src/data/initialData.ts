@@ -276,6 +276,51 @@ export function formatPaymentTimestamp(tx: {
   return parts.join(', ');
 }
 
+export function getClientStartMonth(client: ClientEntity): string {
+  if (client.startMonth && client.startMonth.trim()) {
+    return client.startMonth.trim();
+  }
+  // If client has records with positive charges, payments, or invoices, find earliest month
+  const keys = Object.keys(client.monthlyRecords || {});
+  let minSerial: number | null = null;
+  let earliestMonth: string | null = null;
+  for (const k of keys) {
+    const rec = client.monthlyRecords[k];
+    if (
+      rec &&
+      (rec.softwareCharges > 0 ||
+        rec.amountPaid > 0 ||
+        rec.invoiceGenerated ||
+        (rec.totalAmount && rec.totalAmount > 0))
+    ) {
+      const parsed = parseMonthLabel(k);
+      if (parsed && (minSerial === null || parsed.serial < minSerial)) {
+        minSerial = parsed.serial;
+        earliestMonth = k;
+      }
+    }
+  }
+  if (earliestMonth) return earliestMonth;
+
+  // Otherwise derive from createdAt if available
+  if (client.createdAt) {
+    const ts = parseDateToTimestamp(client.createdAt);
+    if (ts !== null) {
+      const d = new Date(ts);
+      const mName = MONTH_NAMES[d.getMonth()];
+      const y = d.getFullYear();
+      if (mName && y) {
+        return `${mName} ${y}`;
+      }
+    }
+  }
+
+  if (keys.length > 0 && keys[0]) {
+    return keys[0];
+  }
+  return getCurrentMonthLabel();
+}
+
 function findEarliestSavedMonthSerial(client: ClientEntity): number | null {
   const keys = Object.keys(client.monthlyRecords || {});
   let minSerial: number | null = null;
@@ -294,29 +339,18 @@ export function getOrComputeMonthlyRecord(
   depth = 0
 ): MonthlyLedgerRecord {
   const existing = client.monthlyRecords?.[month];
-  const prevMonth = getPreviousMonthName(month);
-  const prevParsed = parseMonthLabel(prevMonth);
-  const earliestSerial = findEarliestSavedMonthSerial(client);
+  const targetParsed = parseMonthLabel(month);
+  const startMonth = getClientStartMonth(client);
+  const startParsed = parseMonthLabel(startMonth);
 
-  const shouldComputePrevRecursively =
-    depth < 24 &&
-    (Boolean(client.monthlyRecords?.[prevMonth]) ||
-      (prevParsed !== null &&
-        earliestSerial !== null &&
-        prevParsed.serial >= earliestSerial));
+  // If this month is BEFORE the client/software started:
+  // Do not add approx data or fake charges for earlier months
+  const isPriorToStart = Boolean(
+    targetParsed && startParsed && targetParsed.serial < startParsed.serial
+  );
 
-  const prevRecord = shouldComputePrevRecursively
-    ? getOrComputeMonthlyRecord(client, prevMonth, depth + 1)
-    : client.monthlyRecords?.[prevMonth];
-
-  // Carry forward unpaid dues from previous month if present
-  const carriedDues = prevRecord
-    ? prevRecord.remainingDues
-    : existing?.previousDues ?? 0;
-  const prevLabel =
-    prevRecord && prevRecord.remainingDues > 0
-      ? `Previous Dues — ${prevMonth}`
-      : existing?.previousDuesLabel || `Previous Dues (${prevMonth})`;
+  const numSuffix =
+    client.id.replace(/\D/g, '').slice(-3).padStart(3, '0') || '001';
 
   // Baseline recurring charges configured for this school
   const baseSoftware = Number(client.softwareCharges) || 0;
@@ -338,6 +372,77 @@ export function getOrComputeMonthlyRecord(
   const basePartnerTotal =
     Number(client.partnerTotalPayment) ||
     (basePartnerSoftware + basePartnerWhatsapp + basePartnerChatbot);
+
+  if (isPriorToStart) {
+    // If user explicitly created or paid a record for this earlier month, honor it
+    if (
+      existing &&
+      (existing.invoiceGenerated ||
+        (existing.amountPaid && existing.amountPaid > 0) ||
+        (existing.softwareCharges && existing.softwareCharges > 0))
+    ) {
+      return {
+        ...existing,
+        invoiceDate: getIssueDateForMonth(month, existing.invoiceDate),
+        dueDate: getDueDateForMonth(month, existing.dueDate),
+      };
+    }
+    // Otherwise return zero charges and zero dues for earlier months before using software
+    return {
+      month,
+      softwareCharges: 0,
+      whatsappBillingType: baseBillingType,
+      whatsappRate: 0,
+      whatsappMessages: 0,
+      whatsappCharges: 0,
+      chatbotCharges: 0,
+      previousDues: 0,
+      previousDuesLabel: '',
+      currentMonthTotal: 0,
+      totalAmount: 0,
+      amountPaid: 0,
+      remainingDues: 0,
+      status: 'Paid',
+      invoiceNumber: `INV-${numSuffix}`,
+      invoiceDate: getIssueDateForMonth(month),
+      dueDate: getDueDateForMonth(month),
+      invoiceGenerated: false,
+      payments: [],
+      partnerId: client.partnerId,
+      partnerName: client.partnerName,
+      partnerPaymentEnabled: client.partnerPaymentEnabled,
+      partnerSoftwareCharges: 0,
+      partnerWhatsappCharges: 0,
+      partnerChatbotCharges: 0,
+      partnerTotalPayment: 0,
+      partnerNote: client.partnerNote,
+    };
+  }
+
+  // Active months from start month onward:
+  const prevMonth = getPreviousMonthName(month);
+  const prevParsed = parseMonthLabel(prevMonth);
+
+  // Only recurse backwards if previous month is AT OR AFTER the school's start month
+  const shouldComputePrevRecursively =
+    depth < 24 &&
+    prevParsed !== null &&
+    startParsed !== null &&
+    prevParsed.serial >= startParsed.serial &&
+    (Boolean(client.monthlyRecords?.[prevMonth]) || depth < 12);
+
+  const prevRecord = shouldComputePrevRecursively
+    ? getOrComputeMonthlyRecord(client, prevMonth, depth + 1)
+    : client.monthlyRecords?.[prevMonth];
+
+  // Carry forward unpaid dues ONLY from active months after starting the software
+  const carriedDues = prevRecord
+    ? prevRecord.remainingDues
+    : (existing?.previousDues ?? 0);
+  const prevLabel =
+    prevRecord && prevRecord.remainingDues > 0
+      ? `Previous Dues — ${prevMonth}`
+      : existing?.previousDuesLabel || `Previous Dues (${prevMonth})`;
 
   if (existing) {
     // If existing record has positive custom charges, keep them; otherwise inherit school base charges so they remain the same all months
@@ -441,10 +546,7 @@ export function getOrComputeMonthlyRecord(
   }
 
   // When no existing record is saved for this month, use the school's configured fee structure
-  // so that the amounts of all descriptions remain the same for all months
-  const numSuffix =
-    client.id.replace(/\D/g, '').slice(-3).padStart(3, '0') || '001';
-
+  // so that the amounts of all descriptions remain the same for all active months from start month onward
   const softwareCharges = baseSoftware;
   const whatsappBillingType = baseBillingType;
   const whatsappRate = baseWhatsappRate;
@@ -534,15 +636,7 @@ export const INITIAL_EXPENSES: ExpenseItem[] = [];
 
 export const INITIAL_ACCOUNTS: AccountItem[] = [];
 
-export const INITIAL_PARTNERS: PartnerItem[] = [
-  {
-    id: 'part-abdul-sattar',
-    name: 'ABDUL SATTAR',
-    phone: '+92 300 1234567',
-    monthlyPayment: 0,
-    paidMonths: {},
-  },
-];
+export const INITIAL_PARTNERS: PartnerItem[] = [];
 
 export function getMonthlyChartBaseline(monthOrYear?: string | number): {
   shortMonth: string;

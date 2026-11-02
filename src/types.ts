@@ -82,6 +82,8 @@ export interface CompanyProfile {
   currency: string;
   receiptLog?: GeneratedReceiptItem[];
   receiptLogMonth?: string;
+  accountCreatedAt?: string;
+  startMonth?: string;
 }
 
 export interface AccountItem {
@@ -150,6 +152,7 @@ export interface ClientEntity {
   ownerName?: string;
   enabled: boolean;
   createdAt: string;
+  startMonth?: string; // Month from which this school/client starts using the software
   // Default recurring monthly fee structure (editable anytime)
   softwareEnabled: boolean;
   softwareCharges: number;

@@ -75,7 +75,7 @@ service cloud.firestore {
           'chatbotEnabled', 'chatbotCharges',
           'ownerName', 'partnerId', 'partnerName', 'partnerPaymentEnabled',
           'partnerSoftwareCharges', 'partnerWhatsappCharges', 'partnerChatbotCharges',
-          'partnerTotalPayment', 'partnerNote',
+          'partnerTotalPayment', 'partnerNote', 'startMonth',
           'monthlyRecords', 'createdAt', 'updatedAt'
         ]) &&
         data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$') &&
@@ -102,6 +102,7 @@ service cloud.firestore {
         (!('partnerChatbotCharges' in data) || (data.partnerChatbotCharges is number && data.partnerChatbotCharges >= 0)) &&
         (!('partnerTotalPayment' in data) || (data.partnerTotalPayment is number && data.partnerTotalPayment >= 0)) &&
         (!('partnerNote' in data) || (data.partnerNote is string && data.partnerNote.size() <= 250)) &&
+        (!('startMonth' in data) || (data.startMonth is string && data.startMonth.size() <= 40)) &&
         data.monthlyRecords is map &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
@@ -229,7 +230,7 @@ service cloud.firestore {
               'chatbotEnabled', 'chatbotCharges',
               'ownerName', 'partnerId', 'partnerName', 'partnerPaymentEnabled',
               'partnerSoftwareCharges', 'partnerWhatsappCharges', 'partnerChatbotCharges',
-              'partnerTotalPayment', 'partnerNote',
+              'partnerTotalPayment', 'partnerNote', 'startMonth',
               'monthlyRecords', 'updatedAt'
             ])
           ) &&
