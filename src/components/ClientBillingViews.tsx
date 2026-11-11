@@ -5,6 +5,7 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  Copy,
   CreditCard,
   Download,
   Edit3,
@@ -232,6 +233,13 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
     useState<ClientEntity | null>(null);
   const [deleteModalClient, setDeleteModalClient] =
     useState<ClientEntity | null>(null);
+
+  // Check & Balance Send Unpaid Invoices Modal State
+  const [showSendUnpaidModal, setShowSendUnpaidModal] = useState(false);
+  const [unpaidSentMap, setUnpaidSentMap] = useState<Record<string, boolean>>({});
+  const [unpaidCopiedClientId, setUnpaidCopiedClientId] = useState<string | null>(null);
+  const [unpaidBatchCopied, setUnpaidBatchCopied] = useState(false);
+  const [isBatchDownloadingUnpaid, setIsBatchDownloadingUnpaid] = useState(false);
   const [deleteInvoiceTarget, setDeleteInvoiceTarget] = useState<{
     clientId: string;
     clientName: string;
@@ -1635,6 +1643,86 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
         )
       : 0;
 
+    const unpaidInstitutesList = ledgerRows.filter(
+      ({ record }) => record.status === 'Unpaid' || record.remainingDues > 0
+    );
+
+    const handleBatchDownloadUnpaidPdfs = async (
+      list: Array<{ client: ClientEntity; record: MonthlyLedgerRecord }>
+    ) => {
+      setIsBatchDownloadingUnpaid(true);
+      for (let i = 0; i < list.length; i++) {
+        const item = list[i];
+        onQuickDownloadInvoice(item.client.id, selectedMonth);
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      setIsBatchDownloadingUnpaid(false);
+    };
+
+    const handleCopyOverdueSummary = (
+      list: Array<{ client: ClientEntity; record: MonthlyLedgerRecord }>
+    ) => {
+      const summary = [
+        `*${company.name || 'InvoicePro'} — Overdue Invoices Summary (${selectedMonth})*`,
+        `Total Unpaid ${term.plural}: ${list.length}`,
+        `Total Pending Dues: ${formatCurrency(
+          list.reduce((s, u) => s + u.record.remainingDues, 0),
+          currency
+        )}`,
+        `--------------------------------`,
+        ...list.map(
+          (u, i) =>
+            `${i + 1}. *${u.client.name}* (${u.client.phone || 'No Phone'})\n   Bill: ${formatCurrency(
+              u.record.totalAmount,
+              currency
+            )} | Due: *${formatCurrency(
+              u.record.remainingDues,
+              currency
+            )}* | Status: ${u.record.status}`
+        ),
+      ].join('\n\n');
+      navigator.clipboard.writeText(summary);
+      setUnpaidBatchCopied(true);
+      setTimeout(() => setUnpaidBatchCopied(false), 2500);
+    };
+
+    const getOverdueReminderText = (
+      client: ClientEntity,
+      record: MonthlyLedgerRecord
+    ) => {
+      const primaryQr = company.qrCodes?.[0];
+      const bankDetails = [
+        primaryQr?.bankName ? `Bank: ${primaryQr.bankName}` : '',
+        primaryQr?.accountTitle ? `Account Title: ${primaryQr.accountTitle}` : '',
+        primaryQr?.accountNumber ? `A/C Number: ${primaryQr.accountNumber}` : '',
+        company.phone ? `Helpline: ${company.phone}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      return (
+        `*Dear ${client.name},*\n\n` +
+        `This is a gentle invoice reminder for *${selectedMonth}* from *${company.name || 'InvoicePro'}*.\n\n` +
+        `• Invoice No: #${record.invoiceNumber.replace(/^#/, '')}\n` +
+        `• Software Charges: ${formatCurrency(record.softwareCharges, currency)}\n` +
+        (record.whatsappCharges > 0
+          ? `• WhatsApp Charges: ${formatCurrency(record.whatsappCharges, currency)}\n`
+          : '') +
+        (record.chatbotCharges > 0
+          ? `• Chatbot Charges: ${formatCurrency(record.chatbotCharges, currency)}\n`
+          : '') +
+        (record.previousDues > 0
+          ? `• Previous Dues: ${formatCurrency(record.previousDues, currency)}\n`
+          : '') +
+        `• Total Amount: ${formatCurrency(record.totalAmount, currency)}\n` +
+        `• Amount Paid: ${formatCurrency(record.amountPaid, currency)}\n` +
+        `*• Remaining Balance Due: ${formatCurrency(record.remainingDues, currency)}*\n` +
+        (record.dueDate ? `• Due Date: ${record.dueDate}\n` : '') +
+        (bankDetails ? `\n*Payment Details:*\n${bankDetails}\n` : '') +
+        `\nKindly clear the remaining balance at your earliest convenience. Thank you!`
+      );
+    };
+
     return (
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1752,25 +1840,83 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
               />
             </div>
 
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
-              {(['All', 'Paid', 'Partially Paid', 'Unpaid', 'With Dues'] as const).map(
-                (st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => setCbStatusFilter(st)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                      cbStatusFilter === st
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {st}
-                  </button>
-                )
-              )}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                {(['All', 'Paid', 'Partially Paid', 'Unpaid', 'With Dues'] as const).map(
+                  (st) => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setCbStatusFilter(st)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        cbStatusFilter === st
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {st}
+                    </button>
+                  )
+                )}
+              </div>
+
+              {/* Option to Send Invoices to Unpaid Institutes */}
+              <button
+                type="button"
+                onClick={() => {
+                  setCbStatusFilter('Unpaid');
+                  setShowSendUnpaidModal(true);
+                }}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg inline-flex items-center gap-1.5 shadow-xs transition-all whitespace-nowrap ${
+                  cbStatusFilter === 'Unpaid' || cbStatusFilter === 'With Dues'
+                    ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white ring-2 ring-emerald-500/30'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
+                }`}
+                title={`Send invoices to unpaid ${term.plural.toLowerCase()}`}
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>Send Invoices to Unpaid ({unpaidCount})</span>
+              </button>
             </div>
           </div>
+
+          {/* Active Banner for Unpaid / With Dues filter */}
+          {(cbStatusFilter === 'Unpaid' || cbStatusFilter === 'With Dues') && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-rose-50/90 via-amber-50/60 to-emerald-50/60 rounded-xl border border-rose-200 shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900">
+                    {filteredLedgerRows.length} {cbStatusFilter === 'Unpaid' ? 'Unpaid' : 'Pending Due'} {term.plural} for {selectedMonth}
+                  </div>
+                  <div className="text-[11px] text-slate-600">
+                    Total pending dues:{' '}
+                    <span className="font-mono font-bold text-rose-600">
+                      {formatCurrency(
+                        filteredLedgerRows.reduce(
+                          (sum, r) => sum + r.record.remainingDues * periodMultiplier,
+                          0
+                        ),
+                        currency
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowSendUnpaidModal(true)}
+                  className="flex-1 sm:flex-none px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-lg shadow-xs inline-flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Send Invoices ({filteredLedgerRows.length})</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Check & Balance Table */}
           {filteredLedgerRows.length === 0 ? (
@@ -1886,12 +2032,30 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                       </div>
 
                       {/* Mobile Touch Action Row */}
-                      <div className="flex items-center gap-2 pt-1">
+                      <div className="flex items-center gap-2 pt-1 flex-wrap sm:flex-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onQuickWhatsAppInvoice(client.id, selectedMonth);
+                            setUnpaidSentMap((prev) => ({ ...prev, [client.id]: true }));
+                          }}
+                          title={`Send Invoice to ${client.name} via WhatsApp`}
+                          className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs border ${
+                            unpaidSentMap[client.id]
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : hasDues || record.status === 'Unpaid'
+                              ? 'bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 border-emerald-600'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+                          }`}
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>{unpaidSentMap[client.id] ? 'Sent ✓' : 'Send Invoice'}</span>
+                        </button>
                         <button
                           type="button"
                           disabled={!hasDues}
                           onClick={() => openPaymentModalForClient(client)}
-                          className={`flex-1 py-2.5 px-3 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs ${
+                          className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap ${
                             !hasDues
                               ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                               : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
@@ -2086,18 +2250,36 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                         </td>
                         <td className="py-3.5 px-3 text-right border border-slate-200">
                           <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                type="button"
-                                disabled={record.remainingDues <= 0}
-                                onClick={() => openPaymentModalForClient(client)}
-                                className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-                                  record.remainingDues <= 0
-                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                    : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
-                                }`}
-                              >
-                                Make Payment
-                              </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onQuickWhatsAppInvoice(client.id, selectedMonth);
+                                setUnpaidSentMap((prev) => ({ ...prev, [client.id]: true }));
+                              }}
+                              title={`Send Invoice to ${client.name} via WhatsApp`}
+                              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-xs border ${
+                                unpaidSentMap[client.id]
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : record.remainingDues > 0 || cbStatusFilter === 'Unpaid' || cbStatusFilter === 'With Dues'
+                                  ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white border-emerald-600'
+                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+                              }`}
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>{unpaidSentMap[client.id] ? 'Sent ✓' : 'Send Invoice'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={record.remainingDues <= 0}
+                              onClick={() => openPaymentModalForClient(client)}
+                              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+                                record.remainingDues <= 0
+                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                  : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                              }`}
+                            >
+                              Make Payment
+                            </button>
                             <button
                               type="button"
                               onClick={() =>
@@ -3043,6 +3225,251 @@ export const ClientBillingViews: React.FC<ClientBillingViewsProps> = ({
                   className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg"
                 >
                   Delete {term.singular}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 8. SEND INVOICES TO UNPAID INSTITUTES MODAL */}
+        {showSendUnpaidModal && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+            <div className="bg-white rounded-2xl border border-slate-200 max-w-3xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
+              {/* Header */}
+              <div className="flex items-start justify-between pb-3 border-b border-slate-200/80 shrink-0">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                      <AlertCircle className="w-3 h-3" />
+                      Unpaid Invoices Filter
+                    </span>
+                    <span className="text-xs font-semibold text-slate-500">
+                      {selectedMonth}
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 mt-1">
+                    Send Invoices to Unpaid {term.plural}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Dispatch official PDF invoices and payment reminders to all institutes with pending dues.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSendUnpaidModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Summary Stats & Batch Actions */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3 shrink-0">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                    <div className="text-[10px] text-slate-500 font-medium">Unpaid {term.plural}</div>
+                    <div className="font-bold text-base text-rose-600 font-mono mt-0.5">
+                      {unpaidInstitutesList.length}
+                    </div>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                    <div className="text-[10px] text-slate-500 font-medium">Total Pending Dues</div>
+                    <div className="font-bold text-base text-rose-600 font-mono mt-0.5">
+                      {formatCurrency(
+                        unpaidInstitutesList.reduce((sum, r) => sum + r.record.remainingDues, 0),
+                        currency
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                    <div className="text-[10px] text-slate-500 font-medium">Invoices Sent</div>
+                    <div className="font-bold text-base text-emerald-600 font-mono mt-0.5">
+                      {unpaidInstitutesList.filter((u) => unpaidSentMap[u.client.id]).length} / {unpaidInstitutesList.length}
+                    </div>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                    <div className="text-[10px] text-slate-500 font-medium">Due Date</div>
+                    <div className="font-bold text-xs text-slate-800 mt-1 truncate">
+                      {getDueDateForMonth(selectedMonth)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick batch toolbar */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/80">
+                  <div className="text-[11px] text-slate-600">
+                    Click <strong className="text-emerald-700">Send via WhatsApp</strong> to send official PDF invoice directly to the school.
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyOverdueSummary(unpaidInstitutesList)}
+                      className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      {unpaidBatchCopied ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-emerald-600 font-bold">List Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Copy Overdue List</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBatchDownloadingUnpaid || unpaidInstitutesList.length === 0}
+                      onClick={() => handleBatchDownloadUnpaidPdfs(unpaidInstitutesList)}
+                      className="px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{isBatchDownloadingUnpaid ? 'Downloading PDFs...' : 'Download All PDFs'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* List of Unpaid Institutes */}
+              <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 min-h-[220px]">
+                {unpaidInstitutesList.length === 0 ? (
+                  <div className="py-12 text-center space-y-2">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                    <p className="text-sm font-bold text-slate-800">
+                      No Unpaid {term.plural} for {selectedMonth}!
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      All active {term.plural.toLowerCase()} have cleared their dues for this billing month.
+                    </p>
+                  </div>
+                ) : (
+                  unpaidInstitutesList.map(({ client, record }) => {
+                    const isSent = Boolean(unpaidSentMap[client.id]);
+                    const isCopied = unpaidCopiedClientId === client.id;
+                    return (
+                      <div
+                        key={client.id}
+                        className={`p-3.5 rounded-xl border transition-all ${
+                          isSent
+                            ? 'bg-emerald-50/40 border-emerald-200'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm text-slate-900 truncate">
+                                {client.name}
+                              </span>
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  record.status === 'Partially Paid'
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}
+                              >
+                                {record.status}
+                              </span>
+                              {isSent && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <Check className="w-2.5 h-2.5" />
+                                  Sent
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
+                              <span>📞 {client.phone || 'No Phone'}</span>
+                              {client.ownerName && <span>Owner: {client.ownerName}</span>}
+                              <span>Invoice: #{record.invoiceNumber.replace(/^#/, '')}</span>
+                            </div>
+
+                            {/* Breakdown */}
+                            <div className="flex items-center gap-3 text-[11px] text-slate-600 mt-2 flex-wrap font-mono">
+                              <span>Total: <strong className="text-slate-900">{formatCurrency(record.totalAmount, currency)}</strong></span>
+                              <span>Paid: <strong className="text-emerald-700">{formatCurrency(record.amountPaid, currency)}</strong></span>
+                              <span>Due: <strong className="text-rose-600 font-bold">{formatCurrency(record.remainingDues, currency)}</strong></span>
+                              {record.previousDues > 0 && (
+                                <span className="text-slate-500 font-sans">(includes {formatCurrency(record.previousDues, currency)} prior dues)</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onQuickWhatsAppInvoice(client.id, selectedMonth);
+                                setUnpaidSentMap((prev) => ({ ...prev, [client.id]: true }));
+                              }}
+                              className={`px-3 py-2 text-xs font-bold rounded-lg shadow-xs inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                                isSent
+                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white'
+                              }`}
+                              title={`Send invoice via WhatsApp to ${client.phone}`}
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>{isSent ? 'Resend' : 'Send via WhatsApp'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onQuickDownloadInvoice(client.id, selectedMonth)}
+                              className="p-2 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+                              title="Download PDF Invoice"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const text = getOverdueReminderText(client, record);
+                                navigator.clipboard.writeText(text);
+                                setUnpaidCopiedClientId(client.id);
+                                setTimeout(() => setUnpaidCopiedClientId(null), 2000);
+                              }}
+                              className="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+                              title="Copy Reminder Text"
+                            >
+                              {isCopied ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowSendUnpaidModal(false);
+                                openPaymentModalForClient(client);
+                              }}
+                              className="px-2.5 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition-colors whitespace-nowrap"
+                            >
+                              Pay
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-slate-200/80 flex items-center justify-between shrink-0">
+                <div className="text-[11px] text-slate-400">
+                  Showing unpaid institutes for <strong className="text-slate-600">{selectedMonth}</strong>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSendUnpaidModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                >
+                  Close
                 </button>
               </div>
             </div>
